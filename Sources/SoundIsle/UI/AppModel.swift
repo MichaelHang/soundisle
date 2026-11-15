@@ -93,8 +93,7 @@ final class AppModel: ObservableObject {
     /// means a file operation is in flight, so sheets can disable their action.
     @Published private(set) var fileWorkProgress: String?
     /// The missing-ffmpeg banner adds install/retry/choose-path actions.
-    @Published private(set) var showsFFmpegInstallPrompt = false
-    @Published private(set) var ffmpegPromptMessage: String?
+    @Published private(set) var ffmpegPrompt = FFmpegPrompt()
     @Published private(set) var transcodeCacheBytes: Int64 = 0
     @Published var isSettingsPresented = false
     /// Main content area: track list or the full-window lyrics page. UI state
@@ -1222,12 +1221,12 @@ final class AppModel: ObservableObject {
         }
 
         if AudioFormatSupport.isNative(track.url) {
-            clearFFmpegPrompt()
+            ffmpegPrompt.clear()
             pendingTranscodeTrack = nil
             return loadAndPlay(track, url: track.url, startAt: startAt)
         }
         if let cached = transcode.cachedURL(for: track) {
-            clearFFmpegPrompt()
+            ffmpegPrompt.clear()
             pendingTranscodeTrack = nil
             return loadAndPlay(track, url: cached, startAt: startAt)
         }
@@ -1235,7 +1234,7 @@ final class AppModel: ObservableObject {
             // Leave the current song alone: a missing dependency must never
             // freeze the UI or block formats AVFoundation can play.
             pendingTranscodeTrack = track
-            showFFmpegPrompt(Lf("需要 FFmpeg 才能播放此格式（《%@》）。", track.title))
+            ffmpegPrompt.show(Lf("需要 FFmpeg 才能播放此格式（《%@》）。", track.title))
             return true
         }
 
@@ -1243,7 +1242,7 @@ final class AppModel: ObservableObject {
         engine.unload()
         currentTrack = track
         restoredPosition = startAt
-        clearFFmpegPrompt()
+        ffmpegPrompt.clear()
         statusMessage = Lf("正在准备《%@》…", track.title)
         preparingTrackID = track.id
 
@@ -1260,7 +1259,7 @@ final class AppModel: ObservableObject {
                 self.preparingTrackID = nil
                 if case TranscodeError.ffmpegMissing = error {
                     self.pendingTranscodeTrack = track
-                    self.showFFmpegPrompt(Lf("需要 FFmpeg 才能播放此格式（《%@》）。", track.title))
+                    self.ffmpegPrompt.show(Lf("需要 FFmpeg 才能播放此格式（《%@》）。", track.title))
                 } else {
                     self.showWarning(Lf("无法准备《%@》：%@", track.title, error.localizedDescription))
                 }
@@ -1350,11 +1349,11 @@ final class AppModel: ObservableObject {
     func redetectFFmpeg() -> String {
         guard let found = FFmpegLocator.find(customPath: library.settings.ffmpegPath) else {
             let message = L("仍未找到 FFmpeg，请先运行 brew install ffmpeg。")
-            showFFmpegPrompt(message)
+            ffmpegPrompt.show(message)
             return message
         }
         transcode.updateFFmpeg(found)
-        clearFFmpegPrompt()
+        ffmpegPrompt.clear()
         let message = Lf("已找到 FFmpeg：%@", found.path)
         statusMessage = message
         prepareLibraryFormats()
@@ -1383,7 +1382,7 @@ final class AppModel: ObservableObject {
         library.settings.ffmpegPath = url.path
         library.saveSettings()
         transcode.updateFFmpeg(url)
-        clearFFmpegPrompt()
+        ffmpegPrompt.clear()
         let message = Lf("已使用 FFmpeg：%@", url.path)
         statusMessage = message
         prepareLibraryFormats()
@@ -2108,23 +2107,13 @@ final class AppModel: ObservableObject {
     /// Closes the FFmpeg banner: it stays until the user fixes the dependency
     /// or dismisses it.
     func dismissStatus() {
-        clearFFmpegPrompt()
+        ffmpegPrompt.clear()
         pendingTranscodeTrack = nil
     }
 
     /// An error the user should read: it stays until closed.
     func showWarning(_ text: String) {
         showNotice(AppNotice(kind: .warning, text: text))
-    }
-
-    private func showFFmpegPrompt(_ message: String) {
-        showsFFmpegInstallPrompt = true
-        ffmpegPromptMessage = message
-    }
-
-    private func clearFFmpegPrompt() {
-        clearFFmpegPrompt()
-        ffmpegPromptMessage = nil
     }
 
     /// Clicking anywhere outside a text field resigns the search field, so

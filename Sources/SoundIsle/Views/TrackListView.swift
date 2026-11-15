@@ -35,7 +35,7 @@ struct TrackListView: View {
             // The list keeps one banner: the FFmpeg prompt, which is a
             // persistent, multi-action state. Every other message is the
             // window's notice, wherever the user happens to be.
-            if model.showsFFmpegInstallPrompt, let message = model.ffmpegPromptMessage {
+            if let message = model.ffmpegPrompt.message {
                 ffmpegBanner(message)
             }
 
