@@ -280,14 +280,21 @@ struct LyricsOverlayView: View {
                     outline.toggle()
                     model.setLyricsOutline(outline)
                 }
-                // Icon language: compress = enter mini, expand = back to the
-                // main window (on the mini panel), slashed = close the mini
-                // without bringing the main window back.
+                // Icon language: compress = enter the mini player, expand =
+                // the main window — the same pair the mini panel and the
+                // player bar use. Here it toggles: the filled state says the
+                // window is up, pressing it again hides it (⌘W's behaviour,
+                // playback keeps going) instead of minimising to the Dock.
                 controlButton(
-                    model.isMiniPlayerVisible ? "rectangle.slash" : "rectangle.compress.vertical",
-                    help: model.isMiniPlayerVisible ? L("关闭迷你窗口") : L("打开迷你窗口")
+                    "rectangle.expand.vertical",
+                    help: model.isMainWindowOnScreen ? L("隐藏主窗口") : L("展开主窗口"),
+                    isOn: model.isMainWindowOnScreen
                 ) {
-                    model.toggleMiniPlayer()
+                    if model.isMainWindowOnScreen {
+                        model.hideMainWindow()
+                    } else {
+                        model.showMainWindow()
+                    }
                 }
                 controlButton("xmark", help: L("关闭歌词")) {
                     model.setLyricsVisible(false)
@@ -344,13 +351,17 @@ struct LyricsOverlayView: View {
     private func controlButton(
         _ symbol: String,
         help: String,
+        isOn: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Icons.symbol(symbol, size: 11)
-                .foregroundColor(palette.text.opacity(0.85))
+                .foregroundColor(isOn ? palette.accent : palette.text.opacity(0.85))
                 .frame(width: 22, height: 22)
-                .background(palette.raisedFill, in: Circle())
+                .background(
+                    isOn ? palette.accent.opacity(0.24) : palette.raisedFill,
+                    in: Circle()
+                )
         }
         .buttonStyle(.plain)
         .help(help)

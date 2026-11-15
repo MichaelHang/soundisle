@@ -289,6 +289,7 @@ private struct WindowConfigurator: NSViewRepresentable {
         func windowShouldClose(_ sender: NSWindow) -> Bool {
             guard model.library.settings.keepRunningOnClose else { return true }
             sender.orderOut(nil)
+            model.setMainWindowVisible(false)
             return false
         }
 

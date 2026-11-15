@@ -124,6 +124,13 @@ final class AppModel: ObservableObject {
     weak var lyricsOverlay: LyricsOverlayWindowController?
     /// Set by `AppDelegate` so preference changes reach the mini panel.
     weak var miniPlayer: MiniPlayerWindowController?
+    /// Bringing the main window forward belongs to the app delegate, which
+    /// owns the window; the lyrics overlay and the menu bar reach it here.
+    var onShowMainWindow: (() -> Void)?
+    var onHideMainWindow: (() -> Void)?
+    /// Whether the main window is on screen (not in the Dock, not hidden by
+    /// mini mode). The desktop lyrics show it as the state of their button.
+    @Published private(set) var isMainWindowVisible = true
     /// Mirrors the mini panel's visibility so any control can show the right
     /// open/close affordance.
     @Published private(set) var isMiniPlayerVisible = false
@@ -1458,11 +1465,38 @@ final class AppModel: ObservableObject {
     /// Switches to the mini player from anywhere in the UI. Every main
     /// window (not the floating lyrics/mini panels) is ordered out; returning
     /// still goes through the menu bar or the mini player's expand button.
+    /// The main window and the mini player take turns; whichever shows, the
+    /// other is gone. Both flags are written here so no caller can leave them
+    /// disagreeing about what is on screen.
     func showMiniPlayer() {
         for window in NSApp.windows where !(window is NSPanel) && window.canBecomeMain {
             window.orderOut(nil)
         }
         miniPlayer?.show()
+        setMainWindowVisible(false)
+    }
+
+    func showMainWindow() {
+        onShowMainWindow?()
+    }
+
+    /// Same thing ⌘W does while `keepRunningOnClose` is on: the window goes
+    /// away, the app keeps playing.
+    func hideMainWindow() {
+        onHideMainWindow?()
+    }
+
+    /// What the three surfaces should all agree on: the main window is on
+    /// screen only when it is not hidden and the mini player has not taken
+    /// its place. Derived rather than stored, so a single missed transition
+    /// cannot leave a button lit for a window that is not there.
+    var isMainWindowOnScreen: Bool {
+        isMainWindowVisible && !isMiniPlayerVisible
+    }
+
+    func setMainWindowVisible(_ visible: Bool) {
+        guard isMainWindowVisible != visible else { return }
+        isMainWindowVisible = visible
     }
 
     /// Closes the mini player without forcing the main window back; the menu
@@ -1478,6 +1512,7 @@ final class AppModel: ObservableObject {
     func setMiniPlayerVisible(_ visible: Bool) {
         guard isMiniPlayerVisible != visible else { return }
         isMiniPlayerVisible = visible
+        if visible { setMainWindowVisible(false) }
     }
 
     func toggleLyricsVisibility() {

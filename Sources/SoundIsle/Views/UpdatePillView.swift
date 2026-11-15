@@ -27,15 +27,27 @@ struct UpdatePillView: View {
             .buttonStyle(.plain)
             .popover(isPresented: $isShowingMenu, arrowEdge: .bottom) {
                 ThemedMenuPanel(width: 200) {
-                    ThemedMenuAction(symbol: "arrow.down.circle", title: L("下载并安装")) {
+                    ThemedMenuAction(
+                        symbol: "arrow.down.circle",
+                        title: L("下载并安装"),
+                        onClose: { isShowingMenu = false }
+                    ) {
                         Task { await model.updates.installAvailable() }
                     }
                     if let release = model.updates.availableRelease {
-                        ThemedMenuAction(symbol: "arrow.up.right.square", title: L("查看更新说明")) {
+                        ThemedMenuAction(
+                            symbol: "arrow.up.right.square",
+                            title: L("查看更新说明"),
+                            onClose: { isShowingMenu = false }
+                        ) {
                             model.updates.openReleasePage(release)
                         }
                         ThemedMenuSeparator()
-                        ThemedMenuAction(symbol: "xmark", title: L("忽略此版本")) {
+                        ThemedMenuAction(
+                            symbol: "xmark",
+                            title: L("忽略此版本"),
+                            onClose: { isShowingMenu = false }
+                        ) {
                             model.updates.skip(release)
                         }
                     }
@@ -57,7 +69,11 @@ struct UpdatePillView: View {
             .buttonStyle(.plain)
             .popover(isPresented: $isShowingMenu, arrowEdge: .bottom) {
                 ThemedMenuPanel(width: 180) {
-                    ThemedMenuAction(symbol: "xmark.circle", title: L("取消下载")) {
+                    ThemedMenuAction(
+                        symbol: "xmark.circle",
+                        title: L("取消下载"),
+                        onClose: { isShowingMenu = false }
+                    ) {
                         model.updates.cancelDownload()
                     }
                 }
@@ -73,7 +89,11 @@ struct UpdatePillView: View {
             .buttonStyle(.plain)
             .popover(isPresented: $isShowingMenu, arrowEdge: .bottom) {
                 ThemedMenuPanel(width: 200) {
-                    ThemedMenuAction(symbol: "arrow.clockwise", title: L("现在重启")) {
+                    ThemedMenuAction(
+                        symbol: "arrow.clockwise",
+                        title: L("现在重启"),
+                        onClose: { isShowingMenu = false }
+                    ) {
                         model.updates.restartToApply()
                     }
                     Text(L("退出声屿时会自动更新"))

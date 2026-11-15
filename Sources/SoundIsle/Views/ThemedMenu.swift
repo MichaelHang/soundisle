@@ -41,11 +41,17 @@ struct ThemedMenuPanel<Content: View>: View {
 /// only thing that does, so the panel stays quiet until it is used.
 struct ThemedMenuAction: View {
     @Environment(\.theme) private var theme
-    @Environment(\.dismiss) private var dismiss
 
     let symbol: String
     let title: String
     var isEnabled = true
+    /// How the panel hosting this row goes away. The in-window menu closes
+    /// through `ThemedMenuCenter`; the popover panels hand in their binding.
+    ///
+    /// Deliberately not `@Environment(\.dismiss)`: outside a presentation
+    /// that dismisses the *window*, so picking an item closed (and minimised)
+    /// the main window the menu was drawn in.
+    var onClose: (() -> Void)?
     let run: () -> Void
 
     @State private var isHovering = false
@@ -56,7 +62,7 @@ struct ThemedMenuAction: View {
             // menu still on screen swallows it. `dismiss` covers the one
             // panel that is still a popover (the lyrics source badge).
             ThemedMenuCenter.shared.dismiss()
-            dismiss()
+            onClose?()
             run()
         } label: {
             HStack(spacing: 8) {

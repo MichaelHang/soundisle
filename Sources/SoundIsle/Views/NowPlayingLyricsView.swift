@@ -222,19 +222,25 @@ struct NowPlayingLyricsView: View {
         ThemedMenuAction(
             symbol: model.lyrics == nil ? "square.and.arrow.down" : "arrow.triangle.2.circlepath",
             title: model.lyrics == nil ? L("导入歌词…") : L("更换歌词…"),
-            isEnabled: model.currentTrack != nil
+            isEnabled: model.currentTrack != nil,
+            onClose: { isShowingSourceMenu = false }
         ) {
             model.promptImportLyrics()
         }
         ThemedMenuAction(
             symbol: "arrow.clockwise",
             title: L("重试匹配"),
-            isEnabled: model.currentTrack != nil && !model.isResolvingLyrics
+            isEnabled: model.currentTrack != nil && !model.isResolvingLyrics,
+            onClose: { isShowingSourceMenu = false }
         ) {
             model.retryLyrics()
         }
         if model.hasLyricsOverride {
-            ThemedMenuAction(symbol: "wand.and.stars", title: L("恢复自动匹配")) {
+            ThemedMenuAction(
+                symbol: "wand.and.stars",
+                title: L("恢复自动匹配"),
+                onClose: { isShowingSourceMenu = false }
+            ) {
                 model.restoreAutomaticLyrics()
             }
         }
