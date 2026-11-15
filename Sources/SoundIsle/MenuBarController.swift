@@ -53,9 +53,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             addItem(Lf("发现新版本 %@…", version), action: #selector(openSettings))
             menu.addItem(.separator())
         case .downloading:
-            let item = NSMenuItem(title: L("正在下载更新…"), action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            menu.addItem(item)
+            addItem(L("取消下载…"), action: #selector(cancelUpdateDownload))
             menu.addItem(.separator())
         case .ready:
             addItem(L("重启以更新…"), action: #selector(restartToUpdate))
@@ -138,6 +136,10 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     /// Settings live in a sheet on the main window, so bring the window back
     /// before presenting them — the menu bar may be the only surface that is
     /// visible (mini player mode).
+    @objc private func cancelUpdateDownload() {
+        model.updates.cancelDownload()
+    }
+
     @objc private func restartToUpdate() {
         model.updates.restartToApply()
     }

@@ -400,3 +400,6 @@
 "取消忽略" = "Unskip";
 "新版本 %@ 可用" = "Version %@ is available";
 "更新已下载，重启后生效" = "The update is downloaded; restart to apply";
+"取消下载" = "Cancel download";
+"取消下载…" = "Cancel download…";
+"已取消下载" = "Download cancelled";

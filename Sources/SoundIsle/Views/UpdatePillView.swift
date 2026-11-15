@@ -6,6 +6,7 @@ import SwiftUI
 struct UpdatePillView: View {
     @ObservedObject var model: AppModel
     @Environment(\.theme) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isShowingMenu = false
 
     var body: some View {
@@ -43,8 +44,25 @@ struct UpdatePillView: View {
             .help(Lf("新版本 %@ 可用", pill.version))
 
         case .downloading:
-            capsule(Lf("%@ 下载中", pill.version), symbol: "arrow.down.circle", filled: false)
-                .help(L("正在下载更新…"))
+            Button {
+                isShowingMenu.toggle()
+            } label: {
+                capsule(
+                    Lf("%@ 下载中", pill.version),
+                    symbol: "arrow.down.circle",
+                    filled: false,
+                    progress: pill.progress
+                )
+            }
+            .buttonStyle(.plain)
+            .popover(isPresented: $isShowingMenu, arrowEdge: .bottom) {
+                ThemedMenuPanel(width: 180) {
+                    ThemedMenuAction(symbol: "xmark.circle", title: L("取消下载")) {
+                        model.updates.cancelDownload()
+                    }
+                }
+            }
+            .help(L("正在下载更新…"))
 
         case .ready:
             Button {
@@ -69,17 +87,43 @@ struct UpdatePillView: View {
         }
     }
 
-    private func capsule(_ text: String, symbol: String, filled: Bool) -> some View {
+    /// `progress` fills the capsule from the left instead of adding a number:
+    /// the text stays put, and the length of the tint is the progress. Quieter
+    /// than a percentage, and it reads at a glance from across the desktop.
+    private func capsule(
+        _ text: String,
+        symbol: String,
+        filled: Bool,
+        progress: Double? = nil
+    ) -> some View {
         HStack(spacing: 4) {
             Icons.symbol(symbol, size: 10)
             Text(text)
                 .font(.system(size: 11, weight: .medium))
                 .lineLimit(1)
+                .monospacedDigit()
         }
         .foregroundColor(filled ? theme.onAccent : theme.accentLight)
         .padding(.horizontal, 9)
         .frame(height: 22)
-        .background(filled ? theme.accent : theme.accent.opacity(0.16), in: Capsule())
+        .background {
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(filled ? theme.accent : theme.accent.opacity(0.16))
+                    if let progress {
+                        Rectangle()
+                            .fill(theme.accent.opacity(0.32))
+                            .frame(width: geometry.size.width * min(max(progress, 0), 1))
+                            .animation(
+                                reduceMotion ? nil : .easeOut(duration: 0.2),
+                                value: progress
+                            )
+                    }
+                }
+                .clipShape(Capsule())
+            }
+        }
         .overlay(
             Capsule().strokeBorder(
                 theme.accent.opacity(filled ? 0 : 0.28),

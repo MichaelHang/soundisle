@@ -76,10 +76,14 @@ final class UpdateControllerTests: XCTestCase {
         return (zip, try UpdateInstaller.sha256(ofFileAt: zip))
     }
 
-    private func session() -> URLSession {
+    private func configuration() -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
-        return URLSession(configuration: configuration)
+        return configuration
+    }
+
+    private func session() -> URLSession {
+        URLSession(configuration: configuration())
     }
 
     private func serveManifest(version: String, sha256: String? = nil, page: String = "https://example.test/release") {
@@ -113,7 +117,7 @@ final class UpdateControllerTests: XCTestCase {
             skippedVersion: { [unowned self] in self.skipped },
             setSkippedVersion: { [unowned self] in self.skipped = $0 },
             service: service,
-            session: session(),
+            downloadConfiguration: configuration(),
             bundleURL: support.appendingPathComponent("installed/声屿.app")
         )
         controller.notify = { [unowned self] in self.notices.append($0) }
@@ -217,6 +221,46 @@ final class UpdateControllerTests: XCTestCase {
 
         XCTAssertEqual(skipped, "9.9.9")
         XCTAssertEqual(controller.state, .idle)
+    }
+
+    // MARK: - Cancelling a download
+
+    func testCancellingADownloadReturnsToAvailable() async throws {
+        // The manifest answers; the archive transfer is the one that stops —
+        // exactly what pressing 取消下载 produces.
+        MockURLProtocol.handler = { request in
+            if request.url?.path.hasSuffix(".zip") == true {
+                throw URLError(.cancelled)
+            }
+            let body = #"{"version":"9.9.9","zip":{"url":"https://example.test/release.zip","sha256":"aa"}}"#
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(body.utf8)
+            )
+        }
+        let controller = makeController()
+
+        await controller.check(manual: true)
+
+        XCTAssertEqual(controller.state, .available(try XCTUnwrap(controller.availableRelease)))
+        XCTAssertTrue(notices.contains { $0.text == "已取消下载" })
+        XCTAssertFalse(
+            notices.contains { $0.kind == .warning },
+            "stopping a download is not a failure to report as one"
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stagedApp(version: "9.9.9").path))
+    }
+
+    func testCancellingWhenNothingIsDownloadingDoesNothing() async {
+        serveManifest(version: "9.9.9")
+        mode = "notify"
+        let controller = makeController()
+        await controller.check()
+
+        controller.cancelDownload()
+
+        XCTAssertNotNil(controller.availableRelease, "the offer must survive a stray cancel")
+        XCTAssertTrue(notices.allSatisfy { $0.text != "已取消下载" })
     }
 
     // MARK: - Failures

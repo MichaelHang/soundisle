@@ -24,8 +24,8 @@ final class UpdatePresentationTests: XCTestCase {
             .init(kind: .available, version: "9.9.9")
         )
         XCTAssertEqual(
-            UpdatePresentation.pill(for: .downloading(AppVersion("9.9.9")!)),
-            .init(kind: .downloading, version: "9.9.9")
+            UpdatePresentation.pill(for: .downloading(AppVersion("9.9.9")!, progress: 0.5)),
+            .init(kind: .downloading, version: "9.9.9", progress: 0.5)
         )
         XCTAssertEqual(
             UpdatePresentation.pill(for: .ready(AppVersion("9.9.9")!)),
@@ -53,7 +53,7 @@ final class UpdatePresentationTests: XCTestCase {
         XCTAssertEqual(available?.tone, .accent)
 
         let downloading = UpdatePresentation.status(
-            for: .downloading(AppVersion("9.9.9")!), currentVersion: current
+            for: .downloading(AppVersion("9.9.9")!, progress: 0.5), currentVersion: current
         )
         XCTAssertEqual(downloading?.form, .downloading)
 
@@ -70,7 +70,7 @@ final class UpdatePresentationTests: XCTestCase {
     func testOnlyFailuresUseTheWarningTone() {
         let cases: [UpdateController.State] = [
             .idle, .checking, .upToDate, .available(release),
-            .downloading(AppVersion("9.9.9")!), .ready(AppVersion("9.9.9")!),
+            .downloading(AppVersion("9.9.9")!, progress: 0.5), .ready(AppVersion("9.9.9")!),
             .installed(AppVersion("9.9.9")!)
         ]
         for state in cases {
@@ -92,7 +92,7 @@ final class UpdatePresentationTests: XCTestCase {
     func testNoPendingStateIsReportedAsUpToDate() {
         for state: UpdateController.State in [
             .available(release),
-            .downloading(AppVersion("9.9.9")!),
+            .downloading(AppVersion("9.9.9")!, progress: 0.5),
             .ready(AppVersion("9.9.9")!)
         ] {
             XCTAssertNotEqual(
@@ -109,7 +109,7 @@ final class UpdatePresentationTests: XCTestCase {
         XCTAssertNil(UpdatePresentation.menuBar(for: .idle))
         XCTAssertNil(UpdatePresentation.menuBar(for: .upToDate))
         XCTAssertEqual(UpdatePresentation.menuBar(for: .available(release)), .available("9.9.9"))
-        XCTAssertEqual(UpdatePresentation.menuBar(for: .downloading(AppVersion("9.9.9")!)), .downloading)
+        XCTAssertEqual(UpdatePresentation.menuBar(for: .downloading(AppVersion("9.9.9")!, progress: 0.5)), .downloading)
         XCTAssertEqual(UpdatePresentation.menuBar(for: .ready(AppVersion("9.9.9")!)), .ready)
     }
 }

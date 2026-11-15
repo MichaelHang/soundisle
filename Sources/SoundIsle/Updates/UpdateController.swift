@@ -30,7 +30,7 @@ final class UpdateController: ObservableObject {
         case upToDate
         /// A newer build exists but is not on disk yet.
         case available(UpdateRelease)
-        case downloading(AppVersion)
+        case downloading(AppVersion, progress: Double)
         /// Downloaded, verified and unpacked: it applies on quit, or now.
         case ready(AppVersion)
         case failed(Failure)
@@ -68,10 +68,11 @@ final class UpdateController: ObservableObject {
     private(set) var didScheduleSwap = false
 
     private let service: UpdateService
-    private let session: URLSession
+    private let downloadConfiguration: URLSessionConfiguration
     private let bundleURL: URL
     private let updatesDirectory: URL
     private var timer: Timer?
+    private var download: ProgressDownload?
     private var didStart = false
     private var isBusy = false
 
@@ -90,7 +91,7 @@ final class UpdateController: ObservableObject {
         skippedVersion: @escaping () -> String?,
         setSkippedVersion: @escaping (String?) -> Void,
         service: UpdateService? = nil,
-        session: URLSession = .shared,
+        downloadConfiguration: URLSessionConfiguration = .ephemeral,
         bundleURL: URL = Bundle.main.bundleURL
     ) {
         self.currentVersion = currentVersion
@@ -99,7 +100,7 @@ final class UpdateController: ObservableObject {
         self.skippedVersion = skippedVersion
         self.setSkippedVersion = setSkippedVersion
         self.service = service ?? UpdateService(current: currentVersion)
-        self.session = session
+        self.downloadConfiguration = downloadConfiguration
         self.bundleURL = bundleURL
     }
 
@@ -221,9 +222,16 @@ final class UpdateController: ObservableObject {
         guard !isBusy else { return }
 
         isBusy = true
-        state = .downloading(release.version)
+        state = .downloading(release.version, progress: 0)
         do {
-            let (downloaded, _) = try await session.download(from: asset.url)
+            let download = ProgressDownload(configuration: downloadConfiguration)
+            self.download = download
+            defer { self.download = nil }
+            let archive = updatesDirectory.appendingPathComponent("release.zip")
+            try? FileManager.default.createDirectory(at: updatesDirectory, withIntermediateDirectories: true)
+            let downloaded = try await download.download(asset.url, to: archive) { [weak self] fraction in
+                Task { @MainActor in self?.reportDownloadProgress(fraction) }
+            }
             guard try UpdateInstaller.sha256(ofFileAt: downloaded) == expected.lowercased() else {
                 throw Failure.checksum
             }
@@ -250,14 +258,38 @@ final class UpdateController: ObservableObject {
                 )
             )
         } catch {
-            state = .failed(Self.failure(from: error))
-            if manual {
-                notify(AppNotice(kind: .warning, text: Self.failure(from: error).message))
+            // Stopping a download is not a failure: the release goes back to
+            // "available" so it can be started again.
+            if Self.isCancellation(error) {
+                state = .available(release)
+                notify(AppNotice(kind: .info, text: L("已取消下载")))
+            } else {
+                state = .failed(Self.failure(from: error))
+                // An automatic failure stays in settings: the user never asked
+                // for this check and should not be interrupted by it.
+                if manual {
+                    notify(AppNotice(kind: .warning, text: Self.failure(from: error).message))
+                }
             }
-            // An automatic failure stays in settings: the user never asked for
-            // this check and should not be interrupted by it.
         }
         isBusy = false
+    }
+
+    /// Progress arrives in whatever slice the network hands over; re-rendering
+    /// the pill for each one is noise, so it moves in whole percent steps.
+    private func reportDownloadProgress(_ fraction: Double) {
+        guard case .downloading(let version, let shown) = state else { return }
+        let clamped = min(max(fraction, 0), 1)
+        guard clamped >= shown + 0.01 || clamped >= 1 else { return }
+        state = .downloading(version, progress: clamped)
+    }
+
+    /// Stops an in-flight download. The pill stays useful: the release goes
+    /// back to "available", so the user can start it again.
+    func cancelDownload() {
+        guard case .downloading = state else { return }
+        download?.cancel()
+        download = nil
     }
 
     func installAvailable() async {
@@ -381,6 +413,11 @@ final class UpdateController: ObservableObject {
     private enum InstallFailure: Error {
         case checksum
         case unpack
+    }
+
+    private static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        return (error as? URLError)?.code == .cancelled
     }
 
     private static func failure(from error: Error) -> Failure {

@@ -672,7 +672,8 @@ struct SettingsView: View {
         case .available:
             text = Lf("发现新版本 %@", version)
         case .downloading:
-            text = Lf("正在下载 %@…", version)
+            let percent = Int(((status.progress ?? 0) * 100).rounded())
+            text = Lf("正在下载 %@… %d%%", version, percent)
         case .ready:
             text = Lf("%@ 已就绪，重启后生效", version)
         case .installed:

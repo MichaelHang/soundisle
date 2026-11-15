@@ -16,14 +16,16 @@ enum UpdatePresentation {
     struct Pill: Equatable {
         let kind: PillKind
         let version: String
+        /// 0…1 while a download is running; nil for the other kinds.
+        var progress: Double? = nil
     }
 
     static func pill(for state: UpdateController.State) -> Pill? {
         switch state {
         case .available(let release):
             return Pill(kind: .available, version: release.version.raw)
-        case .downloading(let version):
-            return Pill(kind: .downloading, version: version.raw)
+        case .downloading(let version, let progress):
+            return Pill(kind: .downloading, version: version.raw, progress: progress)
         case .ready(let version):
             return Pill(kind: .ready, version: version.raw)
         case .idle, .checking, .upToDate, .failed, .installed:
@@ -55,6 +57,8 @@ enum UpdatePresentation {
         /// Present for every form that names a version.
         let version: String?
         let failure: UpdateController.Failure?
+        /// 0…1 while downloading, for the settings line's percentage.
+        var progress: Double? = nil
 
         var isFailure: Bool { form == .failed }
     }
@@ -69,8 +73,14 @@ enum UpdatePresentation {
             return Status(form: .upToDate, tone: .neutral, version: currentVersion, failure: nil)
         case .available(let release):
             return Status(form: .available, tone: .accent, version: release.version.raw, failure: nil)
-        case .downloading(let version):
-            return Status(form: .downloading, tone: .accent, version: version.raw, failure: nil)
+        case .downloading(let version, let progress):
+            return Status(
+                form: .downloading,
+                tone: .accent,
+                version: version.raw,
+                failure: nil,
+                progress: progress
+            )
         case .ready(let version):
             return Status(form: .ready, tone: .accent, version: version.raw, failure: nil)
         case .failed(let failure):
