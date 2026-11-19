@@ -52,7 +52,7 @@ struct ArtworkImage: View {
 
     /// CGImageSource thumbnailing: decodes straight to the target size instead
     /// of loading a full-resolution image and scaling it afterwards.
-    private static func downsample(url: URL, maxPixelSize: CGFloat) -> NSImage? {
+    private nonisolated static func downsample(url: URL, maxPixelSize: CGFloat) -> NSImage? {
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,

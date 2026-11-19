@@ -35,7 +35,8 @@ struct TrackListView: View {
                                 isPlaying: model.isPlaying,
                                 rowStyle: model.library.settings.rowStyle,
                                 artworkURL: model.library.artworkURL(for: track),
-                                onTap: { model.handleTrackClick(track.id) }
+                                onTap: { model.handleTrackClick(track.id) },
+                                onDoubleClick: { model.handleTrackDoubleClick(track.id) }
                             )
                             .onDrag {
                                 NSItemProvider(object: track.id.uuidString as NSString)
@@ -43,8 +44,8 @@ struct TrackListView: View {
                             .onDrop(of: [UTType.utf8PlainText], isTargeted: nil) { providers in
                                 handleReorder(providers, onto: track)
                             }
-                            .themedContextMenu {
-                                TrackContextMenu(model: model, trackID: track.id)
+                            .contextMenu {
+                                TrackMenuItems(model: model, trackID: track.id)
                             }
                             .id(track.id)
                         }

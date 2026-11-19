@@ -60,9 +60,6 @@ struct MainWindowView: View {
             }
         }
         .background(AppBackground())
-        // Inside the theme so the menu panel is themed, above everything so
-        // the list cannot clip it.
-        .overlay(ThemedMenuHost())
         .overlay(alignment: .bottom) { noticeOverlay }
         .soundIsleTheme(palette)
         .overlay(dropOverlay)
@@ -146,8 +143,6 @@ struct MainWindowView: View {
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
                         .strokeBorder(palette.hairline, lineWidth: 0.5)
                 )
-
-                UpdatePillView(model: model)
 
                 Button {
                     model.isSettingsPresented = true
@@ -291,6 +286,20 @@ private struct WindowConfigurator: NSViewRepresentable {
             return false
         }
 
+        /// Mirrors the app's 浅色/深色 setting onto the window. The SwiftUI
+        /// palette only recolors the app's own views; without this, system
+        /// chrome — NSMenus above all, now that the context menus are native —
+        /// would keep following the macOS appearance and clash with a
+        /// fixed-light or fixed-dark theme.
+        @MainActor
+        func applyAppearance(to window: NSWindow) {
+            switch model.library.settings.mode {
+            case .system: window.appearance = nil
+            case .light: window.appearance = NSAppearance(named: .aqua)
+            case .dark: window.appearance = NSAppearance(named: .darkAqua)
+            }
+        }
+
         /// Keep SwiftUI's own window delegate working for every other
         /// callback by forwarding what this coordinator does not implement.
         override func responds(to aSelector: Selector!) -> Bool {
@@ -309,30 +318,42 @@ private struct WindowConfigurator: NSViewRepresentable {
         let view = NSView()
         let coordinator = context.coordinator
         DispatchQueue.main.async {
-            guard let window = view.window else { return }
-            window.titlebarAppearsTransparent = true
-            window.titleVisibility = .hidden
-            // Rows must be able to start drag sessions; whole-window background
-            // dragging swallowed those gestures. The top bar carries its own
-            // drag area instead.
-            window.isMovableByWindowBackground = false
-            // Clear so `AppBackground`'s under-window material shows the
-            // desktop through the glass. Text contrast comes from its tint.
-            window.isOpaque = false
-            window.backgroundColor = .clear
-            window.hasShadow = true
-            window.minSize = NSSize(width: 900, height: 600)
-            window.setContentSize(NSSize(width: 900, height: 600))
-            window.center()
-            // Keep the search field from grabbing first responder at launch;
-            // space and arrow keys belong to playback until search is clicked.
-            window.initialFirstResponder = nil
-            window.makeFirstResponder(nil)
-            coordinator.originalDelegate = window.delegate
-            window.delegate = coordinator
+            // Main-queue work, stated as such for the concurrency checker.
+            MainActor.assumeIsolated {
+                guard let window = view.window else { return }
+                window.titlebarAppearsTransparent = true
+                window.titleVisibility = .hidden
+                // Rows must be able to start drag sessions; whole-window
+                // background dragging swallowed those gestures. The top bar
+                // carries its own drag area instead.
+                window.isMovableByWindowBackground = false
+                // Clear so `AppBackground`'s under-window material shows the
+                // desktop through the glass. Text contrast comes from its tint.
+                window.isOpaque = false
+                window.backgroundColor = .clear
+                window.hasShadow = true
+                window.minSize = NSSize(width: 900, height: 600)
+                window.setContentSize(NSSize(width: 900, height: 600))
+                window.center()
+                coordinator.applyAppearance(to: window)
+                // Keep the search field from grabbing first responder at
+                // launch; space and arrow keys belong to playback until
+                // search is clicked.
+                window.initialFirstResponder = nil
+                window.makeFirstResponder(nil)
+                coordinator.originalDelegate = window.delegate
+                window.delegate = coordinator
+            }
         }
         return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    func updateNSView(_ nsView: NSView, context: Context) {
+        // Runs on every model change, so a theme light/dark switch made in
+        // settings reaches the window — and with it every system surface:
+        // NSMenus, alert dialogs, text fields, scroll indicators.
+        if let window = nsView.window {
+            context.coordinator.applyAppearance(to: window)
+        }
+    }
 }

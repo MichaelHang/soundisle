@@ -236,10 +236,13 @@ final class AppModel: ObservableObject {
 
     /// Called once the window appears: loads were read in `init`, then the
     /// library refreshes incrementally without blocking the first frame.
+    ///
+    /// No update checks here: this fork tracks its own releases, so the
+    /// upstream updater stays parked (`checkForUpdates()` remains available
+    /// for when the fork's own channel is wired up).
     func start() {
         guard !didStart else { return }
         didStart = true
-        updates.start()
         guard !library.index.folders.isEmpty else { return }
         Task { await rescan() }
     }
@@ -405,8 +408,7 @@ final class AppModel: ObservableObject {
     /// browser).
     func handleTrackClick(
         _ trackID: UUID,
-        modifiers: NSEvent.ModifierFlags = NSEvent.modifierFlags,
-        source: [Track]? = nil
+        modifiers: NSEvent.ModifierFlags = NSEvent.modifierFlags
     ) {
         if modifiers.contains(.command) {
             if selectedTrackIDs.contains(trackID) {
@@ -424,6 +426,14 @@ final class AppModel: ObservableObject {
             selectedTrackIDs = Set(visibleTracks[range].map(\.id))
             return
         }
+        // A plain click only selects; playback is the double-click's job.
+        selectedTrackIDs = [trackID]
+        selectionAnchorID = trackID
+    }
+
+    /// Double-click playback. The queue follows the given source — the whole
+    /// view in flat lists, the album (or artist) in detail pages.
+    func handleTrackDoubleClick(_ trackID: UUID, source: [Track]? = nil) {
         selectedTrackIDs = [trackID]
         selectionAnchorID = trackID
         play(trackID: trackID, source: source)
@@ -435,6 +445,14 @@ final class AppModel: ObservableObject {
         guard selectedTrackIDs.contains(trackID) else { return [trackID] }
         let ordered = visibleTracks.map(\.id).filter { selectedTrackIDs.contains($0) }
         return ordered.isEmpty ? [trackID] : ordered
+    }
+
+    /// The tracks a context-menu action applies to, in view order.
+    func contextTracks(for trackID: UUID) -> [Track] {
+        let ids = Set(contextTrackIDs(for: trackID))
+        let matched = visibleTracks.filter { ids.contains($0.id) }
+        if !matched.isEmpty { return matched }
+        return tracks.filter { ids.contains($0.id) }
     }
 
     // MARK: - Playlists
@@ -500,6 +518,19 @@ final class AppModel: ObservableObject {
         ) else { return }
         let playlist = createPlaylist(named: name)
         select(.playlist(playlist.id))
+    }
+
+    /// The track menu's 新建播放列表…: prompt for a name, create the list and
+    /// drop the given tracks straight in — no view switch, unlike the
+    /// sidebar's + button.
+    func createPlaylistFromPrompt(adding trackIDs: [UUID]) {
+        guard let name = promptForPlaylistName(
+            title: L("新建播放列表"),
+            message: L("输入播放列表名称。"),
+            value: ""
+        ) else { return }
+        let playlist = createPlaylist(named: name)
+        addToPlaylist(playlist.id, trackIDs: trackIDs)
     }
 
     func promptRenamePlaylist(id: UUID) {

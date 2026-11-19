@@ -48,20 +48,6 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(trackItem)
         menu.addItem(.separator())
 
-        switch UpdatePresentation.menuBar(for: model.updates.state) {
-        case .available(let version):
-            addItem(Lf("发现新版本 %@…", version), action: #selector(openSettings))
-            menu.addItem(.separator())
-        case .downloading:
-            addItem(L("取消下载…"), action: #selector(cancelUpdateDownload))
-            menu.addItem(.separator())
-        case .ready:
-            addItem(L("重启以更新…"), action: #selector(restartToUpdate))
-            menu.addItem(.separator())
-        case nil:
-            break
-        }
-
         addItem(model.isPlaying ? L("暂停（空格）") : L("播放（空格）"), action: #selector(togglePlayPause))
         addItem(L("上一首（⌘←）"), action: #selector(previous))
         addItem(L("下一首（⌘→）"), action: #selector(next))
@@ -136,14 +122,6 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     /// Settings live in a sheet on the main window, so bring the window back
     /// before presenting them — the menu bar may be the only surface that is
     /// visible (mini player mode).
-    @objc private func cancelUpdateDownload() {
-        model.updates.cancelDownload()
-    }
-
-    @objc private func restartToUpdate() {
-        model.updates.restartToApply()
-    }
-
     @objc private func openSettings() {
         showMainWindow()
         DispatchQueue.main.async { [weak self] in

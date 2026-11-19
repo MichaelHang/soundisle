@@ -372,6 +372,8 @@
 "无法启动 FFmpeg：%@" = "Could not start FFmpeg: %@";
 "FFmpeg 转码失败（%d）%@" = "FFmpeg transcoding failed (%d)%@";
 "无法写入转码缓存：%@" = "Could not write to the transcode cache: %@";
+"在访达中显示" = "Show in Finder";
+"新建播放列表…" = "New Playlist…";
 
 /* Updates. */
 "更新" = "Updates";

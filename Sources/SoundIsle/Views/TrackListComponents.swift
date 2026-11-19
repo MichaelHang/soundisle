@@ -37,7 +37,10 @@ struct TrackRow: View {
     var showsArtistColumn: Bool = true
     var showsAlbumColumn: Bool = true
     var showsAddedColumn: Bool = true
+    /// Single click selects; double click plays. Declared count:2 first so
+    /// the double-click gesture wins over the plain one.
     let onTap: () -> Void
+    var onDoubleClick: () -> Void = {}
 
     @State private var isHovering = false
 
@@ -111,6 +114,7 @@ struct TrackRow: View {
         .frame(height: TrackColumns.rowHeight)
         .background(rowBackground, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
         .contentShape(Rectangle())
+        .onTapGesture(count: 2) { onDoubleClick() }
         .onTapGesture(perform: onTap)
         .onHover { isHovering = $0 }
     }
@@ -212,57 +216,58 @@ struct TrackListStatusBanner: View {
 
 // MARK: - Track context menu
 
-/// The songs' right-click menu, drawn by the window's `ThemedMenuHost` through
-/// `.themedContextMenu`. This supplies only the rows — the panel, click-away and
-/// Esc all live there, shared with the sidebar and lyrics menus.
-struct TrackContextMenu: View {
+/// The songs' right-click menu, rendered by the system as an NSMenu through
+/// `.contextMenu`: anchored at the pointer, keyboard-navigable, and following
+/// the window appearance. Actions apply to the whole selection when the
+/// clicked row belongs to it, otherwise to the clicked row alone.
+struct TrackMenuItems: View {
     @ObservedObject var model: AppModel
     let trackID: UUID
 
-    @Environment(\.theme) private var theme
-
-    private var targetIDs: [UUID] { model.contextTrackIDs(for: trackID) }
-
     var body: some View {
-        ThemedMenuAction(symbol: "trash", title: L("从音乐库移除")) {
-            model.removeTracksFromLibrary(targetIDs)
+        let targets = model.contextTracks(for: trackID)
+
+        Button(L("播放")) {
+            if let first = targets.first {
+                model.play(trackID: first.id, source: targets)
+            }
+        }
+        .disabled(targets.isEmpty)
+
+        Divider()
+
+        Menu(L("添加到播放列表")) {
+            Button(L("新建播放列表…")) {
+                model.createPlaylistFromPrompt(adding: targets.map(\.id))
+            }
+            if !model.playlists.playlists.isEmpty {
+                Divider()
+                ForEach(model.playlists.playlists) { playlist in
+                    Button(playlist.name) {
+                        model.addToPlaylist(playlist.id, trackIDs: targets.map(\.id))
+                    }
+                }
+            }
         }
 
-        ThemedMenuSeparator()
-
         if case .playlist(let playlistID) = model.selection {
-            ThemedMenuAction(symbol: "minus.circle", title: L("从播放列表移除")) {
-                for id in targetIDs {
+            Button(L("从播放列表移除")) {
+                for id in targets.map(\.id) {
                     model.removeFromPlaylist(playlistID, trackID: id)
                 }
             }
-            ThemedMenuSeparator()
         }
 
-        playlistSection
-    }
+        Divider()
 
-    private var playlistSection: some View {
-        Group {
-            ThemedMenuHeader(title: L("添加到播放列表"))
-            if model.playlists.playlists.isEmpty {
-                Text(L("暂无播放列表"))
-                    .font(.system(size: 11))
-                    .foregroundColor(theme.mutedText(0.35))
-                    .padding(.horizontal, 8)
-                    .frame(height: 26)
-            } else {
-                ScrollView(showsIndicators: true) {
-                    VStack(spacing: 1) {
-                        ForEach(model.playlists.playlists) { playlist in
-                            ThemedMenuAction(symbol: "music.note.list", title: playlist.name) {
-                                model.addToPlaylist(playlist.id, trackIDs: targetIDs)
-                            }
-                        }
-                    }
-                }
-                .frame(maxHeight: min(CGFloat(model.playlists.playlists.count) * 28, 168))
-            }
+        Button(L("在访达中显示")) {
+            NSWorkspace.shared.activateFileViewerSelecting(targets.map(\.url))
+        }
+
+        Divider()
+
+        Button(L("从音乐库移除"), role: .destructive) {
+            model.removeTracksFromLibrary(targets.map(\.id))
         }
     }
 }

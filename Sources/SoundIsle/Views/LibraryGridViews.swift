@@ -270,6 +270,15 @@ private struct AlbumDetailView: View {
     let group: TrackGroup
     let onBack: () -> Void
 
+    /// The group snapshot from when the page was opened, re-resolved against
+    /// the live library: tracks removed since then drop out immediately, and
+    /// tag/cover updates show up without leaving the page. Group order is
+    /// kept so the album's running order never jumps.
+    private var liveTracks: [Track] {
+        let current = Dictionary(model.tracks.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        return group.tracks.compactMap { current[$0.id] }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             backButton
@@ -279,7 +288,7 @@ private struct AlbumDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     header
-                    ForEach(Array(group.tracks.enumerated()), id: \.element.id) { index, track in
+                    ForEach(Array(liveTracks.enumerated()), id: \.element.id) { index, track in
                         TrackRow(
                             track: track,
                             index: index,
@@ -291,11 +300,14 @@ private struct AlbumDetailView: View {
                             showsArtistColumn: group.isCompilation,
                             showsAlbumColumn: false,
                             showsAddedColumn: false,
-                            onTap: { model.handleTrackClick(track.id, source: group.tracks) }
+                            onTap: { model.handleTrackClick(track.id) },
+                            onDoubleClick: {
+                                model.handleTrackDoubleClick(track.id, source: liveTracks)
+                            }
                         )
                         .padding(.horizontal, 18)
-                        .themedContextMenu {
-                            TrackContextMenu(model: model, trackID: track.id)
+                        .contextMenu {
+                            TrackMenuItems(model: model, trackID: track.id)
                         }
                     }
                 }
@@ -303,6 +315,11 @@ private struct AlbumDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Every track of this album was removed (or the file set changed
+        // underneath us): nothing left to show, return to the grid.
+        .onChange(of: liveTracks.map(\.id)) { ids in
+            if ids.isEmpty { onBack() }
+        }
     }
 
     private var backButton: some View {
@@ -349,8 +366,8 @@ private struct AlbumDetailView: View {
                     .foregroundColor(theme.mutedText(0.5))
                     .lineLimit(1)
                 PlayAllButton {
-                    if let first = group.tracks.first {
-                        model.play(trackID: first.id, source: group.tracks)
+                    if let first = liveTracks.first {
+                        model.play(trackID: first.id, source: liveTracks)
                     }
                 }
                 .padding(.top, 3)
@@ -365,13 +382,13 @@ private struct AlbumDetailView: View {
     private var meta: String {
         var parts: [String] = []
         if let year = group.year { parts.append(String(year)) }
-        parts.append(Lf("%d 首", group.tracks.count))
-        parts.append(gridDurationText(group.tracks))
+        parts.append(Lf("%d 首", liveTracks.count))
+        parts.append(gridDurationText(liveTracks))
         return parts.joined(separator: " · ")
     }
 
     private var coverURL: URL? {
-        group.tracks.first.map { model.library.artworkURL(for: $0) } ?? nil
+        liveTracks.first.flatMap { model.library.artworkURL(for: $0) }
     }
 }
 
@@ -527,6 +544,13 @@ private struct ArtistDetailView: View {
         var id: String { name }
     }
 
+    /// The group snapshot re-resolved against the live library, like the
+    /// album detail page: removals drop out immediately, group order kept.
+    private var liveTracks: [Track] {
+        let current = Dictionary(model.tracks.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        return group.tracks.compactMap { current[$0.id] }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             backButton
@@ -550,13 +574,16 @@ private struct ArtistDetailView: View {
                                 showsArtistColumn: false,
                                 showsAlbumColumn: false,
                                 showsAddedColumn: false,
-                                // Tapping a track queues that album; 播放全部
+                                // Double-click queues that album; 播放全部
                                 // queues the artist's whole catalogue.
-                                onTap: { model.handleTrackClick(track.id, source: section.tracks) }
+                                onTap: { model.handleTrackClick(track.id) },
+                                onDoubleClick: {
+                                    model.handleTrackDoubleClick(track.id, source: section.tracks)
+                                }
                             )
                             .padding(.horizontal, 18)
-                            .themedContextMenu {
-                                TrackContextMenu(model: model, trackID: track.id)
+                            .contextMenu {
+                                TrackMenuItems(model: model, trackID: track.id)
                             }
                         }
                     }
@@ -565,12 +592,15 @@ private struct ArtistDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onChange(of: liveTracks.map(\.id)) { ids in
+            if ids.isEmpty { onBack() }
+        }
     }
 
     private var sections: [AlbumSection] {
         var byAlbum: [String: [Track]] = [:]
         var order: [String] = []
-        for track in group.tracks {
+        for track in liveTracks {
             let key = track.album.isEmpty ? L("未知专辑") : track.album
             if byAlbum[key] == nil { order.append(key) }
             byAlbum[key, default: []].append(track)
@@ -635,8 +665,8 @@ private struct ArtistDetailView: View {
                     .foregroundColor(theme.mutedText(0.6))
                     .lineLimit(1)
                 PlayAllButton {
-                    if let first = group.tracks.first {
-                        model.play(trackID: first.id, source: group.tracks)
+                    if let first = liveTracks.first {
+                        model.play(trackID: first.id, source: liveTracks)
                     }
                 }
                 .padding(.top, 3)
@@ -651,7 +681,7 @@ private struct ArtistDetailView: View {
     private var collageURLs: [URL?] {
         var seen = Set<String>()
         var urls: [URL?] = []
-        for track in group.tracks {
+        for track in liveTracks {
             guard !track.album.isEmpty, seen.insert(track.album).inserted else { continue }
             urls.append(model.library.artworkURL(for: track))
             if urls.count == 4 { break }

@@ -64,8 +64,8 @@ struct SidebarView: View {
                                 },
                                 onRemove: { confirmRemoveFolder(folder) }
                             )
-                            .themedContextMenu(width: 190) {
-                                ThemedMenuAction(symbol: "pencil", title: L("重命名文件夹…")) {
+                            .contextMenu {
+                                Button(L("重命名文件夹…")) {
                                     promptRenameFolder(folder)
                                 }
                             }
@@ -150,11 +150,11 @@ struct SidebarView: View {
         ) {
             model.select(.playlist(playlist.id))
         }
-        .themedContextMenu(width: 190) {
-            ThemedMenuAction(symbol: "pencil", title: L("重命名")) {
+        .contextMenu {
+            Button(L("重命名")) {
                 model.promptRenamePlaylist(id: playlist.id)
             }
-            ThemedMenuAction(symbol: "trash", title: L("删除")) {
+            Button(L("删除"), role: .destructive) {
                 model.confirmDeletePlaylist(id: playlist.id)
             }
         }

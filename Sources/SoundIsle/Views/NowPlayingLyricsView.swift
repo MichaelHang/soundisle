@@ -7,7 +7,6 @@ import SwiftUI
 struct NowPlayingLyricsView: View {
     @ObservedObject var model: AppModel
     @Environment(\.theme) private var theme
-    @State private var isShowingSourceMenu = false
 
     private var track: Track? { model.currentTrack }
 
@@ -190,10 +189,10 @@ struct NowPlayingLyricsView: View {
 
     /// The source badge is also the lyrics menu: it is where the lyrics came
     /// from, so it is where changing them belongs. Clicking it opens the same
-    /// panel that a right-click anywhere over the lyrics opens.
+    /// menu that a right-click anywhere over the lyrics opens.
     private func sourceBadge(_ origin: String) -> some View {
-        Button {
-            isShowingSourceMenu.toggle()
+        Menu {
+            lyricsMenu
         } label: {
             HStack(spacing: 4) {
                 Icons.symbol("waveform", size: 9)
@@ -207,40 +206,29 @@ struct NowPlayingLyricsView: View {
             .overlay(Capsule().strokeBorder(theme.accent.opacity(0.28), lineWidth: 0.5))
             .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
         .fixedSize()
-        .popover(isPresented: $isShowingSourceMenu, arrowEdge: .bottom) {
-            ThemedMenuPanel(width: 190) { lyricsMenu }
-        }
         .help(L("歌词来源与操作"))
         .accessibilityLabel(Lf("歌词来源：%@", origin))
     }
 
-    /// Shared by the source badge and a right-click over the lyrics.
+    /// Shared by the source badge and a right-click over the lyrics, both
+    /// rendered by the system as an NSMenu.
     @ViewBuilder
     private var lyricsMenu: some View {
-        ThemedMenuAction(
-            symbol: model.lyrics == nil ? "square.and.arrow.down" : "arrow.triangle.2.circlepath",
-            title: model.lyrics == nil ? L("导入歌词…") : L("更换歌词…"),
-            isEnabled: model.currentTrack != nil,
-            onClose: { isShowingSourceMenu = false }
-        ) {
+        Button(model.lyrics == nil ? L("导入歌词…") : L("更换歌词…")) {
             model.promptImportLyrics()
         }
-        ThemedMenuAction(
-            symbol: "arrow.clockwise",
-            title: L("重试匹配"),
-            isEnabled: model.currentTrack != nil && !model.isResolvingLyrics,
-            onClose: { isShowingSourceMenu = false }
-        ) {
+        .disabled(model.currentTrack == nil)
+
+        Button(L("重试匹配")) {
             model.retryLyrics()
         }
+        .disabled(model.currentTrack == nil || model.isResolvingLyrics)
+
         if model.hasLyricsOverride {
-            ThemedMenuAction(
-                symbol: "wand.and.stars",
-                title: L("恢复自动匹配"),
-                onClose: { isShowingSourceMenu = false }
-            ) {
+            Button(L("恢复自动匹配")) {
                 model.restoreAutomaticLyrics()
             }
         }
@@ -257,7 +245,7 @@ struct NowPlayingLyricsView: View {
                 emptyState
             }
         }
-        .themedContextMenu(width: 190) { lyricsMenu }
+        .contextMenu { lyricsMenu }
     }
 
     private func lyricsList(_ lyrics: Lyrics) -> some View {
