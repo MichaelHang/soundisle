@@ -21,9 +21,7 @@ struct MiniPlayerView: View {
     private var palette: ThemePalette {
         let settings = model.library.settings
         return ThemePalette.resolve(
-            preset: settings.preset,
             mode: settings.mode,
-            customAccentHex: settings.customAccentHex,
             systemIsDark: colorScheme == .dark
         )
     }
@@ -73,11 +71,11 @@ struct MiniPlayerView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(model.currentTrack?.title ?? L("未在播放"))
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(.body.weight(.semibold))
                     .foregroundColor(palette.text)
                     .lineLimit(1)
                 Text(subtitle)
-                    .font(.system(size: 10.5))
+                    .font(.subheadline)
                     .foregroundColor(palette.mutedText(0.55))
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -190,7 +188,7 @@ private struct MiniPositionView: View {
         // The 2pt progress strip along the bottom already shows how much of
         // the track remains; the numeric total would only eat spectrum width.
         Text(TimeText.string(engine.duration > 0 ? position : model.displayPosition))
-            .font(.system(size: 10))
+            .font(.caption2)
             .monospacedDigit()
             .foregroundColor(theme.mutedText(0.5))
             .onReceive(engine.$position) { position = $0 }

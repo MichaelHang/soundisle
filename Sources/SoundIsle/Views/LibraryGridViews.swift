@@ -19,11 +19,11 @@ private struct LibraryGridHeader: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text(title)
-                .font(.system(size: 18, weight: .semibold))
+                .font(.title2.weight(.semibold))
                 .foregroundColor(theme.text)
                 .lineLimit(1)
             Text(meta)
-                .font(.system(size: 11.5))
+                .font(.callout)
                 .foregroundColor(theme.mutedText(0.5))
                 .lineLimit(1)
 
@@ -36,7 +36,7 @@ private struct LibraryGridHeader: View {
                         .scaleEffect(0.65)
                         .frame(width: 12, height: 12)
                     Text(L("扫描中…"))
-                        .font(.system(size: 10.5))
+                        .font(.subheadline)
                         .foregroundColor(theme.mutedText(0.5))
                 }
             }
@@ -69,12 +69,13 @@ private struct LibraryGridEmptyState: View {
         return VStack(spacing: 12) {
             Spacer(minLength: 0)
             Icons.emptyLibrary
+                .accessibilityHidden(true)
                 .foregroundColor(theme.mutedText(0.28))
             Text(searching ? L("没有匹配的歌曲") : L("音乐库是空的"))
-                .font(.system(size: 16, weight: .semibold))
+                .font(.title2.weight(.semibold))
                 .foregroundColor(theme.text.opacity(0.85))
             Text(searching ? L("换个关键词，或清空搜索框。") : L("把音乐文件或文件夹拖到这里，或者选择一个文件夹。"))
-                .font(.system(size: 12))
+                .font(.callout)
                 .foregroundColor(theme.mutedText(0.5))
                 .multilineTextAlignment(.center)
 
@@ -88,7 +89,7 @@ private struct LibraryGridEmptyState: View {
                 }
             } label: {
                 Text(searching ? L("清空搜索") : (model.tracks.isEmpty ? L("选择文件夹") : L("查看全部音乐")))
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.callout.weight(.medium))
                     .foregroundColor(theme.accentLight)
                     .padding(.horizontal, 16)
                     .frame(height: 30)
@@ -132,7 +133,7 @@ private struct PlayAllButton: View {
             HStack(spacing: 5) {
                 Icons.symbol("play.fill", size: 9, weight: .bold)
                 Text(L("播放全部"))
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(.callout.weight(.medium))
             }
             .foregroundColor(theme.accentLight)
             .padding(.horizontal, 13)
@@ -147,6 +148,7 @@ private struct PlayAllButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(L("播放全部"))
     }
 }
 
@@ -161,10 +163,19 @@ struct AlbumGridView: View {
     @State private var detail: TrackGroup?
 
     var body: some View {
-        if let detail {
-            AlbumDetailView(model: model, group: detail, onBack: { self.detail = nil })
-        } else {
+        // The grid stays mounted underneath the detail page, so returning
+        // lands on the exact scroll position the card was opened from —
+        // the way a pushed view behaves. Swapping views with `if/else`
+        // rebuilt the grid and always landed back at the top.
+        ZStack {
             AlbumCardGrid(model: model, onOpen: { detail = $0 })
+                .opacity(detail == nil ? 1 : 0)
+                .allowsHitTesting(detail == nil)
+                .accessibilityHidden(detail != nil)
+            if let detail {
+                AlbumDetailView(model: model, group: detail, onBack: { self.detail = nil })
+                    .transition(.opacity)
+            }
         }
     }
 }
@@ -192,6 +203,7 @@ private struct AlbumCardGrid: View {
                     ) {
                         ForEach(model.libraryGroups) { group in
                             AlbumCard(
+                                model: model,
                                 group: group,
                                 artworkURL: coverURL(for: group),
                                 onOpen: { onOpen(group) }
@@ -220,10 +232,62 @@ private struct AlbumCardGrid: View {
     }
 }
 
+/// The album/artist cards' right-click menu — the row menu acting on the
+/// whole group: play it, file every track into a playlist, reveal the folder
+/// on disk, or remove it from the library. Only the clicked group is touched;
+/// the row-level multi-select rules do not apply here.
+private struct GroupMenuItems: View {
+    @ObservedObject var model: AppModel
+    let group: TrackGroup
+    /// 差异只在文案与提示：专辑说这张专辑，歌手说整个歌手目录。
+    let isAlbum: Bool
+
+    var body: some View {
+        Button(L("播放")) {
+            if let first = group.tracks.first {
+                model.play(trackID: first.id, source: group.tracks)
+            }
+        }
+
+        Divider()
+
+        Menu(L("添加到播放列表")) {
+            Button(L("新建播放列表…")) {
+                model.createPlaylistFromPrompt(adding: group.tracks.map(\.id))
+            }
+            if !model.playlists.playlists.isEmpty {
+                Divider()
+                ForEach(model.playlists.playlists) { playlist in
+                    Button(playlist.name) {
+                        model.addToPlaylist(playlist.id, trackIDs: group.tracks.map(\.id))
+                    }
+                }
+            }
+        }
+
+        Divider()
+
+        Button(L("在访达中显示")) {
+            // An album (usually) lives in one folder; the artist's first
+            // album's folder is the closest thing to a home for the group.
+            if let folder = group.tracks.first.map({ $0.url.deletingLastPathComponent() }) {
+                NSWorkspace.shared.activateFileViewerSelecting([folder])
+            }
+        }
+
+        Divider()
+
+        Button(Lf(isAlbum ? "从音乐库移除《%@》" : "从音乐库移除“%@”的全部歌曲", group.name), role: .destructive) {
+            model.removeTracksFromLibrary(group.tracks.map(\.id))
+        }
+    }
+}
+
 /// One album card: cover, album name, artist (群星 for compilations) · year.
 private struct AlbumCard: View {
     @Environment(\.theme) private var theme
     @State private var isHovering = false
+    let model: AppModel
     let group: TrackGroup
     let artworkURL: URL?
     let onOpen: () -> Void
@@ -234,12 +298,12 @@ private struct AlbumCard: View {
                 .aspectRatio(1, contentMode: .fit)
                 .shadow(color: .black.opacity(theme.isDark ? 0.35 : 0.12), radius: 7, y: 3)
             Text(group.name)
-                .font(.system(size: 12.5, weight: .medium))
+                .font(.body.weight(.medium))
                 .foregroundColor(theme.text)
                 .lineLimit(1)
                 .truncationMode(.tail)
             Text(subtitle)
-                .font(.system(size: 10.5))
+                .font(.subheadline)
                 .foregroundColor(theme.mutedText(0.55))
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -252,6 +316,20 @@ private struct AlbumCard: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onOpen)
         .onHover { isHovering = $0 }
+        .contextMenu {
+            GroupMenuItems(model: model, group: group, isAlbum: true)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(cardAccessibilityLabel)
+        .accessibilityHint(L("打开专辑详情"))
+        .accessibilityAddTraits(.isButton)
+    }
+
+    private var cardAccessibilityLabel: String {
+        var parts = [group.name, group.artist]
+        if let year = group.year { parts.append(String(year)) }
+        parts.append(Lf("%d 首", group.tracks.count))
+        return parts.joined(separator: "，")
     }
 
     private var subtitle: String {
@@ -269,6 +347,7 @@ private struct AlbumDetailView: View {
     @Environment(\.theme) private var theme
     let group: TrackGroup
     let onBack: () -> Void
+    @State private var isHoveringBack = false
 
     /// The group snapshot from when the page was opened, re-resolved against
     /// the live library: tracks removed since then drop out immediately, and
@@ -289,14 +368,12 @@ private struct AlbumDetailView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         header
-                        ForEach(Array(liveTracks.enumerated()), id: \.element.id) { index, track in
+                        ForEach(liveTracks) { track in
                             TrackRow(
                                 track: track,
-                                index: index,
                                 isCurrent: model.currentTrack?.id == track.id,
                                 isSelected: model.selectedTrackIDs.contains(track.id),
                                 isPlaying: model.isPlaying,
-                                rowStyle: model.library.settings.rowStyle,
                                 artworkURL: model.library.artworkURL(for: track),
                                 showsArtistColumn: group.isCompilation,
                                 showsAlbumColumn: false,
@@ -336,27 +413,34 @@ private struct AlbumDetailView: View {
         model.listScrollTarget = nil
         guard liveTracks.contains(where: { $0.id == target }) else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            withAnimation(.easeInOut(duration: 0.25)) {
+            withAnimation(NSWorkspace.appReduceMotion ? nil : .easeInOut(duration: 0.25)) {
                 proxy.scrollTo(target, anchor: .center)
             }
         }
     }
 
+    /// Toolbar-style back: chevron plus the destination's name, quiet until
+    /// hovered — no pill, no sentence-length label.
     private var backButton: some View {
         HStack {
             Button(action: onBack) {
-                HStack(spacing: 3) {
-                    Icons.symbol("chevron.left", size: 10, weight: .semibold)
-                    Text(L("返回专辑列表"))
-                        .font(.system(size: 11, weight: .medium))
+                HStack(spacing: 4) {
+                    Icons.symbol("chevron.left", size: 11, weight: .semibold)
+                    Text(L("返回"))
+                        .font(.subheadline.weight(.medium))
                 }
                 .foregroundColor(theme.accentLight)
-                .padding(.horizontal, 9)
-                .frame(height: 23)
-                .background(theme.accent.opacity(0.13), in: Capsule())
+                .padding(.horizontal, 6)
+                .frame(height: 22)
+                .background(
+                    isHoveringBack ? theme.raisedFill : Color.clear,
+                    in: RoundedRectangle(cornerRadius: 5, style: .continuous)
+                )
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .onHover { isHoveringBack = $0 }
+            .help(L("返回专辑列表"))
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 18)
@@ -369,20 +453,16 @@ private struct AlbumDetailView: View {
                 .frame(width: 120, height: 120)
                 .shadow(color: .black.opacity(theme.isDark ? 0.4 : 0.15), radius: 10, y: 4)
             VStack(alignment: .leading, spacing: 5) {
-                Text(L("专辑"))
-                    .font(.system(size: 10, weight: .semibold))
-                    .tracking(1.2)
-                    .foregroundColor(theme.mutedText(0.45))
                 Text(group.name)
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.title2.weight(.semibold))
                     .foregroundColor(theme.text)
                     .lineLimit(2)
                 Text(group.artist)
-                    .font(.system(size: 12))
+                    .font(.callout)
                     .foregroundColor(theme.mutedText(0.7))
                     .lineLimit(1)
                 Text(meta)
-                    .font(.system(size: 10.5))
+                    .font(.subheadline)
                     .foregroundColor(theme.mutedText(0.5))
                     .lineLimit(1)
                 PlayAllButton {
@@ -420,10 +500,16 @@ struct ArtistGridView: View {
     @State private var detail: TrackGroup?
 
     var body: some View {
-        if let detail {
-            ArtistDetailView(model: model, group: detail, onBack: { self.detail = nil })
-        } else {
+        // Grid stays mounted under the detail page; see AlbumGridView.
+        ZStack {
             ArtistCardGrid(model: model, onOpen: { detail = $0 })
+                .opacity(detail == nil ? 1 : 0)
+                .allowsHitTesting(detail == nil)
+                .accessibilityHidden(detail != nil)
+            if let detail {
+                ArtistDetailView(model: model, group: detail, onBack: { self.detail = nil })
+                    .transition(.opacity)
+            }
         }
     }
 }
@@ -451,6 +537,7 @@ private struct ArtistCardGrid: View {
                     ) {
                         ForEach(model.libraryGroups) { group in
                             ArtistCard(
+                                model: model,
                                 group: group,
                                 artworkURLs: collageURLs(for: group),
                                 onOpen: { onOpen(group) }
@@ -490,6 +577,7 @@ private struct ArtistCardGrid: View {
 private struct ArtistCard: View {
     @Environment(\.theme) private var theme
     @State private var isHovering = false
+    let model: AppModel
     let group: TrackGroup
     let artworkURLs: [URL?]
     let onOpen: () -> Void
@@ -500,12 +588,12 @@ private struct ArtistCard: View {
                 .aspectRatio(1, contentMode: .fit)
                 .shadow(color: .black.opacity(theme.isDark ? 0.35 : 0.12), radius: 7, y: 3)
             Text(group.name)
-                .font(.system(size: 12.5, weight: .medium))
+                .font(.body.weight(.medium))
                 .foregroundColor(theme.text)
                 .lineLimit(1)
                 .truncationMode(.tail)
             Text(group.detail)
-                .font(.system(size: 10.5))
+                .font(.subheadline)
                 .foregroundColor(theme.mutedText(0.55))
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -518,6 +606,13 @@ private struct ArtistCard: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onOpen)
         .onHover { isHovering = $0 }
+        .contextMenu {
+            GroupMenuItems(model: model, group: group, isAlbum: false)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(group.name)，\(group.detail)")
+        .accessibilityHint(L("打开歌手详情"))
+        .accessibilityAddTraits(.isButton)
     }
 }
 
@@ -557,6 +652,7 @@ private struct ArtistDetailView: View {
     @Environment(\.theme) private var theme
     let group: TrackGroup
     let onBack: () -> Void
+    @State private var isHoveringBack = false
 
     private struct AlbumSection: Identifiable {
         let name: String
@@ -583,15 +679,13 @@ private struct ArtistDetailView: View {
                         header
                         ForEach(sections) { section in
                             sectionHeader(section)
-                            ForEach(Array(section.tracks.enumerated()), id: \.element.id) { index, track in
+                            ForEach(section.tracks) { track in
                                 TrackRow(
                                     track: track,
-                                    index: index,
                                     isCurrent: model.currentTrack?.id == track.id,
                                     isSelected: model.selectedTrackIDs.contains(track.id),
                                     isPlaying: model.isPlaying,
-                                    rowStyle: model.library.settings.rowStyle,
-                                    artworkURL: model.library.artworkURL(for: track),
+                                        artworkURL: model.library.artworkURL(for: track),
                                     showsArtistColumn: false,
                                     showsAlbumColumn: false,
                                     // Double-click queues that album; 播放全部
@@ -631,7 +725,7 @@ private struct ArtistDetailView: View {
         model.listScrollTarget = nil
         guard liveTracks.contains(where: { $0.id == target }) else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            withAnimation(.easeInOut(duration: 0.25)) {
+            withAnimation(NSWorkspace.appReduceMotion ? nil : .easeInOut(duration: 0.25)) {
                 proxy.scrollTo(target, anchor: .center)
             }
         }
@@ -651,12 +745,12 @@ private struct ArtistDetailView: View {
     private func sectionHeader(_ section: AlbumSection) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(section.name)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.callout.weight(.semibold))
                 .foregroundColor(theme.text)
                 .lineLimit(1)
                 .truncationMode(.tail)
             Text(Lf("%d 首", section.tracks.count))
-                .font(.system(size: 10.5))
+                .font(.subheadline)
                 .foregroundColor(theme.mutedText(0.5))
             Spacer(minLength: 0)
         }
@@ -665,21 +759,27 @@ private struct ArtistDetailView: View {
         .padding(.bottom, 4)
     }
 
+    /// Toolbar-style back, matching the album detail page.
     private var backButton: some View {
         HStack {
             Button(action: onBack) {
-                HStack(spacing: 3) {
-                    Icons.symbol("chevron.left", size: 10, weight: .semibold)
-                    Text(L("返回歌手列表"))
-                        .font(.system(size: 11, weight: .medium))
+                HStack(spacing: 4) {
+                    Icons.symbol("chevron.left", size: 11, weight: .semibold)
+                    Text(L("返回"))
+                        .font(.subheadline.weight(.medium))
                 }
                 .foregroundColor(theme.accentLight)
-                .padding(.horizontal, 9)
-                .frame(height: 23)
-                .background(theme.accent.opacity(0.13), in: Capsule())
+                .padding(.horizontal, 6)
+                .frame(height: 22)
+                .background(
+                    isHoveringBack ? theme.raisedFill : Color.clear,
+                    in: RoundedRectangle(cornerRadius: 5, style: .continuous)
+                )
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .onHover { isHoveringBack = $0 }
+            .help(L("返回歌手列表"))
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 18)
@@ -692,16 +792,12 @@ private struct ArtistDetailView: View {
                 .frame(width: 100, height: 100)
                 .shadow(color: .black.opacity(theme.isDark ? 0.4 : 0.15), radius: 10, y: 4)
             VStack(alignment: .leading, spacing: 5) {
-                Text(L("歌手"))
-                    .font(.system(size: 10, weight: .semibold))
-                    .tracking(1.2)
-                    .foregroundColor(theme.mutedText(0.45))
                 Text(group.name)
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.title2.weight(.semibold))
                     .foregroundColor(theme.text)
                     .lineLimit(2)
                 Text(group.detail)
-                    .font(.system(size: 11))
+                    .font(.subheadline)
                     .foregroundColor(theme.mutedText(0.6))
                     .lineLimit(1)
                 PlayAllButton {

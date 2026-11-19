@@ -32,6 +32,7 @@ struct ArtworkImage: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .accessibilityHidden(true)
         .task(id: url) { await load() }
     }
 

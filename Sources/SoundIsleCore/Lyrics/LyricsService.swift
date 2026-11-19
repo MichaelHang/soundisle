@@ -81,23 +81,15 @@ public struct LyricsDisplayState: Equatable {
     }
 }
 
-/// Resolves lyrics in priority order: manual override, same-name `.lrc`
-/// sidecar, cached online hit, then a live LRCLIB query.
-///
-/// `isOnlineEnabled` gates only the live query. An override, sidecar or cache
-/// hit still resolves when the user has turned online lyrics off. Network
-/// failures are swallowed here; callers stay silent and offer a retry.
+/// Resolves lyrics in priority order: manual override first, then a
+/// same-name `.lrc` sidecar next to the audio file. Online lookup (LRCLIB)
+/// was removed with this fork; the `online` origin remains in the enum only
+/// so previously persisted data still decodes.
 public final class LyricsService {
     private let cache: LyricsCache
-    /// Replaceable so a settings change (custom lyrics endpoint) takes effect
-    /// without rebuilding the service or losing its cache.
-    public var client: LyricsFetching
 
-    public var isOnlineEnabled = true
-
-    public init(cache: LyricsCache, client: LyricsFetching) {
+    public init(cache: LyricsCache) {
         self.cache = cache
-        self.client = client
     }
 
     public func resolve(for track: Track) async -> ResolvedLyrics? {
@@ -113,37 +105,7 @@ public final class LyricsService {
             }
         }
 
-        if let cached = cache.load(
-            title: track.title,
-            artist: track.artist,
-            duration: track.duration
-        ), !cached.lines.isEmpty {
-            return ResolvedLyrics(lyrics: cached, origin: .online)
-        }
-
-        guard isOnlineEnabled,
-              !track.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return nil
-        }
-
-        do {
-            guard let fetched = try await client.fetch(
-                title: track.title,
-                artist: track.artist,
-                duration: track.duration
-            ), !fetched.lines.isEmpty else {
-                return nil
-            }
-            try? cache.save(
-                fetched,
-                title: track.title,
-                artist: track.artist,
-                duration: track.duration
-            )
-            return ResolvedLyrics(lyrics: fetched, origin: .online)
-        } catch {
-            return nil
-        }
+        return nil
     }
 
     /// LRC files are small but not always UTF-8; fall back to the BOM/detected

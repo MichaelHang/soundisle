@@ -14,9 +14,7 @@ struct LockedLyricsControlsView: View {
     private var palette: ThemePalette {
         let settings = model.library.settings
         return ThemePalette.resolve(
-            preset: settings.preset,
             mode: settings.mode,
-            customAccentHex: settings.customAccentHex,
             systemIsDark: colorScheme == .dark
         )
     }

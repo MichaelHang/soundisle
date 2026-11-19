@@ -19,9 +19,7 @@ struct MainWindowView: View {
     private var palette: ThemePalette {
         let settings = model.library.settings
         return ThemePalette.resolve(
-            preset: settings.preset,
             mode: settings.mode,
-            customAccentHex: settings.customAccentHex,
             systemIsDark: colorScheme == .dark
         )
     }
@@ -118,7 +116,7 @@ struct MainWindowView: View {
                 HStack(spacing: 7) {
                     NoteIcon(size: 14, color: palette.text.opacity(0.85))
                     Text(L("声屿"))
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.body.weight(.semibold))
                         .foregroundColor(palette.text.opacity(0.85))
                 }
 
@@ -129,7 +127,7 @@ struct MainWindowView: View {
                         .foregroundColor(palette.mutedText(0.45))
                     TextField(L("搜索歌曲、歌手、专辑"), text: $model.searchText)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 12))
+                        .font(.callout)
                         .foregroundColor(palette.text)
                         .focused($searchFocused)
                     // NSSearchField's clear button. Esc in the field does the
@@ -188,10 +186,10 @@ struct MainWindowView: View {
                     Icons.dropImport
                         .foregroundColor(palette.accent)
                     Text(L("松开以导入"))
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.body.weight(.semibold))
                         .foregroundColor(palette.text)
                     Text(L("文件夹会递归扫描，单个文件会导入所在文件夹"))
-                        .font(.system(size: 11))
+                        .font(.subheadline)
                         .foregroundColor(palette.mutedText(0.55))
                 }
                 .padding(.horizontal, 30)

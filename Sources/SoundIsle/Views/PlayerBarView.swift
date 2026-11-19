@@ -85,11 +85,11 @@ struct PlayerBarView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(model.currentTrack?.title ?? L("未在播放"))
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(.body.weight(.semibold))
                     .foregroundColor(theme.text)
                     .lineLimit(1)
                 Text(subtitle)
-                    .font(.system(size: 10.5))
+                    .font(.subheadline)
                     .foregroundColor(theme.mutedText(0.55))
                     .lineLimit(1)
             }
@@ -306,7 +306,7 @@ private struct PlayerProgressLine: View {
                     .position(x: knobX, y: band / 2)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .animation(.easeOut(duration: 0.16), value: active)
+            .animation(NSWorkspace.appReduceMotion ? nil : .easeOut(duration: 0.16), value: active)
             .contentShape(Rectangle())
             .onHover { hovering in
                 isHovering = hovering
@@ -364,7 +364,7 @@ private struct PlayerBarTimes: View {
             Spacer(minLength: 0)
             rightTime
         }
-        .font(.system(size: 9.5))
+        .font(.caption2)
         .monospacedDigit()
         .foregroundColor(theme.mutedText(0.55))
         .padding(.horizontal, 18)
@@ -529,7 +529,7 @@ private struct VolumePopover: View {
             .accessibilityLabel(isMuted ? L("取消静音") : L("静音"))
 
             Text("\(Int((volume * 100).rounded()))%")
-                .font(.system(size: 9.5))
+                .font(.caption2)
                 .monospacedDigit()
                 .foregroundColor(theme.mutedText(0.5))
         }

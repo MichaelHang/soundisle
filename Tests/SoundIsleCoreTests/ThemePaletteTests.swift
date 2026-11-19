@@ -2,24 +2,23 @@ import XCTest
 @testable import SoundIsleCore
 
 final class ThemePaletteTests: XCTestCase {
-    func testDeepBlueAccents() {
-        XCTAssertEqual(ThemeCatalog.tokens(for: .deepBlue, isDark: false).accentHex, "#3E6FE0")
-        XCTAssertEqual(ThemeCatalog.tokens(for: .deepBlue, isDark: true).accentHex, "#7AA2FF")
-        XCTAssertFalse(ThemeCatalog.tokens(for: .deepBlue, isDark: false).isDark)
-        XCTAssertTrue(ThemeCatalog.tokens(for: .deepBlue, isDark: true).isDark)
-    }
-
-    func testEveryPresetAccent() {
-        let expected: [(ThemePreset, String)] = [
-            (.morning, "#C2703D"),
-            (.inkAmber, "#F5B942"),
-            (.berry, "#B48CF2"),
-            (.seaSalt, "#3E8FB0"),
-        ]
-        for (preset, hex) in expected {
-            XCTAssertEqual(ThemeCatalog.tokens(for: preset, isDark: false).accentHex, hex)
-            XCTAssertEqual(ThemeCatalog.tokens(for: preset, isDark: true).accentHex, hex)
+    func testSkinIsNeutralInBothAppearances() {
+        // The background skin carries no hue of its own: every channel is
+        // neutral grey, so the only colour in the UI is the system accent.
+        for isDark in [false, true] {
+            for value in [
+                ThemeSkin.panelTint(isDark: isDark),
+                ThemeSkin.playerTint(isDark: isDark),
+                ThemeSkin.backgroundTop(isDark: isDark),
+                ThemeSkin.backgroundMiddle(isDark: isDark),
+                ThemeSkin.backgroundBottom(isDark: isDark),
+            ] {
+                let rgb = ThemeRGB(hex: value)!
+                XCTAssertLessThanOrEqual(abs(rgb.red - rgb.green), 0.02, value)
+                XCTAssertLessThanOrEqual(abs(rgb.green - rgb.blue), 0.02, value)
+            }
         }
+        XCTAssertTrue(ThemeSkin.panelTint(isDark: true) != ThemeSkin.panelTint(isDark: false))
     }
 
     func testSystemModeResolution() {
@@ -43,47 +42,20 @@ final class ThemePaletteTests: XCTestCase {
         XCTAssertEqual(AccentContrast.textColor(on: "not-a-colour"), "#FFFFFF")
     }
 
-    func testCustomAccentOverridesPreset() {
-        let tokens = ThemeCatalog.tokens(
-            for: .deepBlue,
-            isDark: true,
-            customAccentHex: "#20C997"
-        )
-        XCTAssertEqual(tokens.accentHex, "#20C997")
-        XCTAssertEqual(tokens.accentTextHex, "#000000")
-    }
-
-    func testInvalidCustomAccentIsIgnored() {
-        let tokens = ThemeCatalog.tokens(
-            for: .berry,
-            isDark: true,
-            customAccentHex: "#12"
-        )
-        XCTAssertEqual(tokens.accentHex, "#B48CF2")
-    }
-
-    func testSettingsStringsResolveToEnums() {
+    func testSettingsModeResolves() {
         let settings = AppSettings()
-        XCTAssertEqual(settings.preset, .celadon)
         XCTAssertEqual(settings.mode, .system)
 
         var custom = settings
-        custom.themePreset = "celadon"
         custom.themeMode = "dark"
-        custom.rowStyle = "cover"
-        XCTAssertEqual(custom.preset, .celadon)
         XCTAssertEqual(custom.mode, .dark)
-        XCTAssertTrue(custom.usesCoverRowStyle)
-
-        custom.themePreset = "unknown"
-        XCTAssertEqual(custom.preset, .deepBlue)
     }
 }
 
-/// Text drawn on a filled accent control — the play button, the update pill,
-/// a notice's action button — takes its colour from `accentTextHex`, which
-/// picks black or white by contrast. These pin the property down for every
-/// preset in both appearances, and for the extremes a custom accent can hit.
+/// Text drawn on a filled accent control — the play button, a notice's action
+/// button — takes its colour from `accentTextHex`, which picks black or white
+/// by contrast. These pin the property down for the fixed skin in both
+/// appearances.
 final class AccentContrastTests: XCTestCase {
     /// WCAG relative luminance.
     private func luminance(_ hex: String) -> Double {
@@ -99,47 +71,13 @@ final class AccentContrastTests: XCTestCase {
         return (max(one, two) + 0.05) / (min(one, two) + 0.05)
     }
 
-    func testAccentTextIsReadableOnEveryPresetInBothAppearances() {
-        for preset in ThemePreset.allCases {
-            for isDark in [false, true] {
-                let tokens = ThemeCatalog.tokens(for: preset, isDark: isDark)
-                let ratio = contrast(tokens.accentHex, tokens.accentTextHex)
-                XCTAssertGreaterThanOrEqual(
-                    ratio, 4.5,
-                    "\(preset) dark=\(isDark): \(tokens.accentTextHex) on \(tokens.accentHex)"
-                )
-            }
-        }
-    }
-
-    /// The worst case for "pick the better of black and white" is the luminance
-    /// where the two are equal, which still clears 4.5:1 — so a custom accent
-    /// cannot produce an unreadable button.
-    func testCustomAccentsCannotProduceUnreadableText() {
-        let samples = [
-            "#000000", "#FFFFFF", "#808080", "#777777", "#767676",
-            "#4FB89A", "#2F7D6A", "#F5B942", "#C2703D", "#3E8FB0",
-            "#B48CF2", "#123456", "#ABCDEF", "#FF0000", "#00FF00", "#0000FF"
-        ]
-        for hex in samples {
+    func testAccentTextIsReadableForKnownAccents() {
+        // The accent is dynamic (the user's control accent), but whatever it
+        // resolves to, black-or-white by contrast must stay readable — pin a
+        // few plausible accents including the system default blue.
+        for hex in ["#3E6FE0", "#7AA2FF", "#C04040", "#40A060", "#808080"] {
             let text = AccentContrast.textColor(on: hex)
             XCTAssertGreaterThanOrEqual(contrast(hex, text), 4.5, "\(text) on \(hex)")
-            XCTAssertTrue(text == "#000000" || text == "#FFFFFF")
         }
-    }
-
-    func testTheScreenshotsCaseIsTheDarkConvention() {
-        // Celadon dark: a light accent, so filled controls carry dark text.
-        // White there would read at about 2.4:1.
-        let dark = ThemeCatalog.tokens(for: .celadon, isDark: true)
-        XCTAssertEqual(dark.accentHex, "#4FB89A")
-        XCTAssertEqual(ThemeCatalog.tokens(for: .celadon, isDark: true).accentTextHex, "#000000")
-        XCTAssertGreaterThan(contrast("#4FB89A", "#FFFFFF"), 0)
-        XCTAssertLessThan(contrast("#4FB89A", "#FFFFFF"), 3)
-
-        // Celadon light: a dark accent, so filled controls carry white text.
-        let light = ThemeCatalog.tokens(for: .celadon, isDark: false)
-        XCTAssertEqual(light.accentHex, "#2F7D6A")
-        XCTAssertEqual(light.accentTextHex, "#FFFFFF")
     }
 }

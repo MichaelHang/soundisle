@@ -7,7 +7,6 @@ import SwiftUI
 /// UI-side colours for one resolved theme. Core owns the accent contract;
 /// this type adds the background skin, glass tints and control fills.
 struct ThemePalette {
-    let preset: ThemePreset
     let tokens: ThemeTokens
 
     let accent: Color
@@ -29,20 +28,26 @@ struct ThemePalette {
 
     var isDark: Bool { tokens.isDark }
 
-    /// Secondary text/icons stay subtle in dark mode but are raised on light
-    /// backgrounds, where opacity 0.4–0.55 is only about 2.6–3.3:1 contrast.
+    /// Secondary text/icons stay subtle but readable: both modes carry a
+    /// contrast floor. Light already clamped at 0.62 (0.4–0.55 opacity read
+    /// at only 2.6–3.3:1); dark now clamps at 0.5, which the near-white text
+    /// turns into roughly 4.9:1 on the darkest skin — WCAG AA for the small
+    /// sizes these labels use.
     func mutedText(_ base: Double) -> Color {
-        text.opacity(isDark ? base : max(base, 0.62))
+        text.opacity(isDark ? max(base, 0.5) : max(base, 0.62))
     }
 
-    init(preset: ThemePreset, tokens: ThemeTokens) {
-        self.preset = preset
+    /// The accent is the user's macOS control accent colour; backgrounds are
+    /// neutral greys. There is no app-owned theme colour any more — only
+    /// light/dark remains configurable.
+    init(tokens: ThemeTokens) {
         self.tokens = tokens
 
-        let skin = Self.skin(for: preset)
-        let accentRGB = ThemeRGB(hex: tokens.accentHex) ?? ThemeRGB(red: 0.48, green: 0.64, blue: 1)
-        let secondaryRGB = ThemeRGB(hex: tokens.isDark ? skin.darkGlow : skin.lightGlow)
-            ?? ThemeRGB(red: 0.71, green: 0.55, blue: 0.95)
+        let accentRGB = ThemeRGB(hex: tokens.accentHex) ?? ThemeRGB(red: 0.40, green: 0.56, blue: 1)
+        let secondaryRGB = accentRGB.blended(
+            with: tokens.isDark ? .white : .black,
+            amount: 0.30
+        )
 
         let accent = Color(rgb: accentRGB)
         let secondary = Color(rgb: secondaryRGB)
@@ -58,15 +63,15 @@ struct ThemePalette {
             amount: tokens.isDark ? 0.55 : 0.28
         ))
         self.onAccent = Color(hex: tokens.accentTextHex)
-        self.text = Color(hex: tokens.isDark ? "#EDF0FA" : "#1B1F27")
+        self.text = Color(hex: tokens.isDark ? "#F0F0F2" : "#1D1D1F")
         self.warning = Color(hex: tokens.isDark ? "#FFB766" : "#A65F00")
-        self.panelTint = Color(hex: tokens.isDark ? skin.darkPanel : skin.lightPanel)
-        self.playerTint = Color(hex: tokens.isDark ? skin.darkPlayer : skin.lightPlayer)
-        self.backgroundTop = Color(hex: tokens.isDark ? skin.darkTop : skin.lightTop)
-        self.backgroundMiddle = Color(hex: tokens.isDark ? skin.darkMiddle : skin.lightMiddle)
-        self.backgroundBottom = Color(hex: tokens.isDark ? skin.darkBottom : skin.lightBottom)
+        self.panelTint = Color(hex: ThemeSkin.panelTint(isDark: tokens.isDark))
+        self.playerTint = Color(hex: ThemeSkin.playerTint(isDark: tokens.isDark))
+        self.backgroundTop = Color(hex: ThemeSkin.backgroundTop(isDark: tokens.isDark))
+        self.backgroundMiddle = Color(hex: ThemeSkin.backgroundMiddle(isDark: tokens.isDark))
+        self.backgroundBottom = Color(hex: ThemeSkin.backgroundBottom(isDark: tokens.isDark))
         self.coverGradient = LinearGradient(
-            colors: [accent, secondary, Color(hex: tokens.isDark ? "#C45B8E" : "#D98AB4")],
+            colors: [accent, accentLight],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
@@ -75,94 +80,50 @@ struct ThemePalette {
         self.sliderTrack = tokens.isDark ? Color.white.opacity(0.15) : Color.black.opacity(0.13)
     }
 
-    /// Resolves the persisted settings plus the effective system appearance.
-    static func resolve(
-        preset: ThemePreset,
-        mode: ThemeMode,
-        customAccentHex: String?,
-        systemIsDark: Bool
-    ) -> ThemePalette {
+    /// Resolves the persisted light/dark setting plus the effective system
+    /// appearance into the neutral skin, tinted by the user's macOS control
+    /// accent colour.
+    static func resolve(mode: ThemeMode, systemIsDark: Bool) -> ThemePalette {
         let isDark = ThemeResolver.isDark(mode: mode, systemIsDark: systemIsDark)
-        return ThemePalette(
-            preset: preset,
-            tokens: ThemeCatalog.tokens(
-                for: preset,
-                isDark: isDark,
-                customAccentHex: customAccentHex
-            )
-        )
+        return ThemePalette(tokens: ThemeTokens(
+            accentHex: systemAccentHex(isDark: isDark),
+            isDark: isDark
+        ))
     }
 
-    private struct Skin {
-        let darkTop: String
-        let darkMiddle: String
-        let darkBottom: String
-        let darkPanel: String
-        let darkPlayer: String
-        let darkGlow: String
-        let lightTop: String
-        let lightMiddle: String
-        let lightBottom: String
-        let lightPanel: String
-        let lightPlayer: String
-        let lightGlow: String
-    }
-
-    private static func skin(for preset: ThemePreset) -> Skin {
-        switch preset {
-        case .deepBlue:
-            return Skin(
-                darkTop: "#121521", darkMiddle: "#1B2132", darkBottom: "#161B28",
-                darkPanel: "#141824", darkPlayer: "#0A0D16", darkGlow: "#D660A8",
-                lightTop: "#F4F7FD", lightMiddle: "#E8EEFA", lightBottom: "#FBFDFF",
-                lightPanel: "#FFFFFF", lightPlayer: "#F4F7FE", lightGlow: "#8FA9F2"
-            )
-        case .morning:
-            return Skin(
-                darkTop: "#1A1411", darkMiddle: "#2A1D15", darkBottom: "#231811",
-                darkPanel: "#201814", darkPlayer: "#140F0C", darkGlow: "#E0A15C",
-                lightTop: "#FBF4EC", lightMiddle: "#F5E6D6", lightBottom: "#FFFCF8",
-                lightPanel: "#FFFCF9", lightPlayer: "#FAF1E8", lightGlow: "#E8A566"
-            )
-        case .inkAmber:
-            return Skin(
-                darkTop: "#0F0E0A", darkMiddle: "#1D1810", darkBottom: "#15110A",
-                darkPanel: "#18140D", darkPlayer: "#0C0A07", darkGlow: "#C97B2B",
-                lightTop: "#FBF7EA", lightMiddle: "#F2E9CF", lightBottom: "#FFFDF5",
-                lightPanel: "#FFFCF3", lightPlayer: "#FAF4E6", lightGlow: "#C98A32"
-            )
-        case .celadon:
-            return Skin(
-                darkTop: "#0C1716", darkMiddle: "#142724", darkBottom: "#0F1F1C",
-                darkPanel: "#12201E", darkPlayer: "#091311", darkGlow: "#7FC7B0",
-                lightTop: "#E7F2ED", lightMiddle: "#D9EAE3", lightBottom: "#F4FAF7",
-                lightPanel: "#F7FBF9", lightPlayer: "#E2F0EA", lightGlow: "#6FAF9A"
-            )
-        case .berry:
-            return Skin(
-                darkTop: "#160F1C", darkMiddle: "#271731", darkBottom: "#1B1024",
-                darkPanel: "#1C1226", darkPlayer: "#0F0914", darkGlow: "#E28BC4",
-                lightTop: "#F8F1FC", lightMiddle: "#EEE0F7", lightBottom: "#FDFAFF",
-                lightPanel: "#FFFCFF", lightPlayer: "#F7EFFC", lightGlow: "#C87CAF"
-            )
-        case .seaSalt:
-            return Skin(
-                darkTop: "#0C161B", darkMiddle: "#132630", darkBottom: "#0E1E26",
-                darkPanel: "#11212A", darkPlayer: "#081116", darkGlow: "#7FC4D8",
-                lightTop: "#EEF6FA", lightMiddle: "#DDEDF5", lightBottom: "#F9FDFF",
-                lightPanel: "#FBFEFF", lightPlayer: "#EDF6FB", lightGlow: "#6FAFC4"
-            )
+    /// The user's system accent (系统设置 → 外观 → 强调色), resolved under the
+    /// given appearance so a fixed-light or fixed-dark theme still gets the
+    /// right shade.
+    private static func systemAccentHex(isDark: Bool) -> String {
+        var rgb: ThemeRGB?
+        let appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
+        appearance?.performAsCurrentDrawingAppearance {
+            if let nsColor = NSColor.controlAccentColor.usingColorSpace(.sRGB) {
+                rgb = ThemeRGB(
+                    red: Double(nsColor.redComponent),
+                    green: Double(nsColor.greenComponent),
+                    blue: Double(nsColor.blueComponent)
+                )
+            }
         }
+        // The system default accent, as a fallback if extraction fails.
+        return rgb?.hexString ?? (isDark ? "#7AA2FF" : "#3E6FE0")
     }
 }
 
 // MARK: - Environment
 
+extension NSWorkspace {
+    /// The system 减弱动态效果 switch. The SwiftUI environment value only
+    /// reaches views; model code and view helpers read this instead, so one
+    /// switch gates every animation in the app.
+    static var appReduceMotion: Bool {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+}
+
 private struct ThemePaletteKey: EnvironmentKey {
-    static let defaultValue = ThemePalette(
-        preset: .deepBlue,
-        tokens: ThemeCatalog.tokens(for: .deepBlue, isDark: true)
-    )
+    static let defaultValue = ThemePalette.resolve(mode: .system, systemIsDark: true)
 }
 
 extension EnvironmentValues {

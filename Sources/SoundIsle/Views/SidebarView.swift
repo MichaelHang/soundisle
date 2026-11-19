@@ -123,7 +123,7 @@ struct SidebarView: View {
 
     private var playlistsHeader: some View {
         HStack(spacing: 0) {
-            sectionLabel(L("播放列表分区"))
+            sectionLabel(L("播放列表"))
             Spacer(minLength: 4)
             Button {
                 model.promptCreatePlaylist()
@@ -196,7 +196,7 @@ struct SidebarView: View {
             Icons.playlist
                 .foregroundColor(theme.mutedText(0.3))
             Text(text)
-                .font(.system(size: 11.5))
+                .font(.callout)
                 .foregroundColor(theme.mutedText(0.35))
         }
         .padding(.horizontal, 9)
@@ -238,7 +238,7 @@ struct SidebarView: View {
 
     private func sectionLabel(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 10, weight: .semibold))
+            .font(.caption2.weight(.semibold))
             .tracking(1.1)
             .foregroundColor(theme.mutedText(0.42))
             .padding(.horizontal, 9)
@@ -263,11 +263,11 @@ struct SidebarView: View {
                     .truncationMode(.middle)
                 Spacer(minLength: 4)
                 Text("\(count)")
-                    .font(.system(size: 10.5))
+                    .font(.subheadline)
                     .monospacedDigit()
                     .foregroundColor(theme.mutedText(isSelected ? 0.7 : 0.4))
             }
-            .font(.system(size: 12.5, weight: isSelected ? .semibold : .regular))
+            .font(.body.weight(isSelected ? .semibold : .regular))
             .foregroundColor(isSelected ? theme.accentLight : theme.text.opacity(0.64))
             .padding(.horizontal, 9)
             .frame(height: 30)
@@ -317,12 +317,12 @@ private struct FolderRow: View {
                 iconButton(Icons.symbol("trash", size: 11), help: L("移除文件夹（不删除文件）"), action: onRemove)
             } else {
                 Text("\(count)")
-                    .font(.system(size: 10.5))
+                    .font(.subheadline)
                     .monospacedDigit()
                     .foregroundColor(theme.mutedText(isSelected ? 0.7 : 0.4))
             }
         }
-        .font(.system(size: 12.5, weight: isSelected ? .semibold : .regular))
+        .font(.body.weight(isSelected ? .semibold : .regular))
         .foregroundColor(isSelected ? theme.accentLight : theme.text.opacity(0.64))
         .padding(.horizontal, 9)
         .frame(height: 30)
@@ -334,6 +334,10 @@ private struct FolderRow: View {
         .onTapGesture(perform: onSelect)
         .onHover { isHovering = $0 }
         .help(path)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title)，\(Lf("%d 首", count))")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private func iconButton(

@@ -26,11 +26,9 @@ enum TrackColumns {
 struct TrackRow: View {
     @Environment(\.theme) private var theme
     let track: Track
-    let index: Int
     let isCurrent: Bool
     let isSelected: Bool
     let isPlaying: Bool
-    let rowStyle: String
     let artworkURL: URL?
     var titleDetail: String? = nil
     var showsArtistColumn: Bool = true
@@ -51,14 +49,14 @@ struct TrackRow: View {
 
             HStack(spacing: 6) {
                 Text(title)
-                    .font(.system(size: 12.5, weight: isCurrent ? .semibold : .regular))
+                    .font(.body.weight(isCurrent ? .semibold : .regular))
                     .foregroundColor(titleColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .layoutPriority(1)
                 if track.isMissing {
                     Text(L("文件缺失"))
-                        .font(.system(size: 9.5, weight: .medium))
+                        .font(.caption2.weight(.medium))
                         .foregroundColor(theme.warning)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
@@ -71,7 +69,7 @@ struct TrackRow: View {
 
             if showsArtistColumn {
                 Text(track.artist)
-                    .font(.system(size: 10.5))
+                    .font(.subheadline)
                     .foregroundColor(theme.mutedText(0.5))
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -80,7 +78,7 @@ struct TrackRow: View {
 
             if showsAlbumColumn {
                 Text(track.album)
-                    .font(.system(size: 10.5))
+                    .font(.subheadline)
                     .foregroundColor(theme.mutedText(0.5))
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -88,7 +86,7 @@ struct TrackRow: View {
             }
 
             Text(TimeText.string(track.duration))
-                .font(.system(size: 10.5))
+                .font(.subheadline)
                 .monospacedDigit()
                 .foregroundColor(theme.mutedText(0.45))
                 .frame(width: TrackColumns.duration, alignment: .trailing)
@@ -100,6 +98,23 @@ struct TrackRow: View {
         .onTapGesture(count: 2) { onDoubleClick() }
         .onTapGesture(perform: onTap)
         .onHover { isHovering = $0 }
+        // One VoiceOver element per row: title, artist, album, duration and
+        // state in the label; the column Texts are hidden as children.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(rowAccessibilityLabel)
+        .accessibilityHint(L("连按播放"))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private var rowAccessibilityLabel: String {
+        var parts: [String] = [title]
+        if showsArtistColumn, !track.artist.isEmpty { parts.append(track.artist) }
+        if showsAlbumColumn, !track.album.isEmpty { parts.append(track.album) }
+        parts.append(TimeText.string(track.duration))
+        if track.isMissing { parts.append(L("文件缺失")) }
+        if isCurrent { parts.append(isPlaying ? L("正在播放") : L("已暂停")) }
+        return parts.joined(separator: "，")
     }
 
     private var title: String {
@@ -111,13 +126,10 @@ struct TrackRow: View {
     private var leading: some View {
         if isCurrent {
             PlayingIndicator(isPlaying: isPlaying)
-        } else if rowStyle == "cover" {
-            ArtworkThumbnail(url: artworkURL)
         } else {
-            Text("\(index + 1)")
-                .font(.system(size: 10.5))
-                .monospacedDigit()
-                .foregroundColor(theme.mutedText(0.4))
+            // Row style is fixed to cover thumbnails; the old 序号 option and
+            // its picker were removed.
+            ArtworkThumbnail(url: artworkURL)
         }
     }
 
@@ -149,7 +161,7 @@ struct TrackListStatusBanner: View {
                 Icons.warning
                     .foregroundColor(theme.warning)
                 Text(message)
-                    .font(.system(size: 11.5))
+                    .font(.callout)
                     .foregroundColor(theme.text.opacity(0.82))
                     .lineLimit(2)
                 Spacer(minLength: 6)
@@ -178,7 +190,7 @@ struct TrackListStatusBanner: View {
                     .foregroundColor(theme.mutedText(0.45))
                 Spacer(minLength: 0)
             }
-            .font(.system(size: 10.5))
+            .font(.subheadline)
             .buttonStyle(.plain)
             .foregroundColor(theme.accentLight)
         }
@@ -277,6 +289,7 @@ struct ArtworkThumbnail: View {
         }
         .frame(width: 24, height: 24)
         .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        .accessibilityHidden(true)
         .onAppear(perform: load)
         .onChange(of: url) { _ in load() }
     }
@@ -306,5 +319,6 @@ struct PlayingIndicator: View {
             }
         }
         .frame(width: 14, height: 12, alignment: .bottom)
+        .accessibilityHidden(true)
     }
 }

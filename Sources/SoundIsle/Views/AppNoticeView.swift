@@ -13,7 +13,7 @@ struct AppNoticeView: View {
             leading
 
             Text(notice.text)
-                .font(.system(size: 12))
+                .font(.callout)
                 .foregroundColor(theme.text.opacity(0.9))
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
@@ -24,7 +24,7 @@ struct AppNoticeView: View {
                     onDismiss()
                 } label: {
                     Text(title)
-                        .font(.system(size: 11.5, weight: .semibold))
+                        .font(.callout.weight(.semibold))
                         .foregroundColor(theme.onAccent)
                         .padding(.horizontal, 10)
                         .frame(height: 22)

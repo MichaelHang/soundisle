@@ -126,8 +126,6 @@ final class LibraryStoreTests: XCTestCase {
     func testSettingsRoundTrip() throws {
         let store = IndexStore(directory: dataDir)
         var settings = AppSettings()
-        settings.themePreset = "forest"
-        settings.customAccentHex = "#FF8800"
         settings.lyricsOpacity = 0.5
         settings.hideFromScreenCapture = false
         settings.lastQueue = [UUID(), UUID()]
@@ -172,19 +170,15 @@ final class LibraryStoreTests: XCTestCase {
 
     func testDefaultsMatchPlan() {
         let settings = AppSettings()
-        XCTAssertEqual(settings.themePreset, "celadon")
         XCTAssertEqual(settings.themeMode, "system")
-        XCTAssertNil(settings.customAccentHex)
         XCTAssertEqual(settings.lyricsOpacity, 0.26)
         XCTAssertFalse(settings.lyricsOutline)
         XCTAssertEqual(settings.lyricsLineMode, "two")
         XCTAssertFalse(settings.lyricsLocked)
-        XCTAssertEqual(settings.rowStyle, "index")
         XCTAssertFalse(settings.showMainSpectrum)
         XCTAssertTrue(settings.hideFromScreenCapture)
         XCTAssertTrue(settings.keepRunningOnClose)
         XCTAssertTrue(settings.miniAlwaysOnTop)
-        XCTAssertTrue(settings.onlineLyricsEnabled)
         XCTAssertEqual(settings.playbackMode, "repeatAll")
         XCTAssertEqual(settings.lastQueue, [])
         XCTAssertNil(settings.lastTrackID)
@@ -214,7 +208,7 @@ final class LibraryStoreTests: XCTestCase {
         let track = sampleTrack()
         let playlist = Playlist(name: "收藏", trackIDs: [track.id])
         var settings = AppSettings()
-        settings.themePreset = "forest"
+        settings.lyricsOpacity = 0.5
         let undoDir = dataDir.appendingPathComponent("undo", isDirectory: true)
         let undoFile = undoDir.appendingPathComponent("record.json")
 
@@ -233,7 +227,7 @@ final class LibraryStoreTests: XCTestCase {
         XCTAssertTrue(index.folders.isEmpty)
         // The corrupt index must never take the rest of the user's data with it.
         XCTAssertEqual(store.loadPlaylists(), [playlist])
-        XCTAssertEqual(store.loadSettings().themePreset, "forest")
+        XCTAssertEqual(store.loadSettings().lyricsOpacity, 0.5)
         XCTAssertTrue(fm.fileExists(atPath: undoFile.path))
     }
 

@@ -26,14 +26,12 @@ struct TrackListView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 2) {
-                            ForEach(Array(model.visibleTracks.enumerated()), id: \.element.id) { index, track in
+                            ForEach(model.visibleTracks) { track in
                             TrackRow(
                                 track: track,
-                                index: index,
                                 isCurrent: model.currentTrack?.id == track.id,
                                 isSelected: model.selectedTrackIDs.contains(track.id),
                                 isPlaying: model.isPlaying,
-                                rowStyle: model.library.settings.rowStyle,
                                 artworkURL: model.library.artworkURL(for: track),
                                 onTap: { model.handleTrackClick(track.id) },
                                 onDoubleClick: { model.handleTrackDoubleClick(track.id) }
@@ -72,7 +70,7 @@ struct TrackListView: View {
         guard model.visibleTracks.contains(where: { $0.id == target }) else { return }
         // Let the freshly-shown list lay out before asking it to scroll.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            withAnimation(.easeInOut(duration: 0.25)) {
+            withAnimation(NSWorkspace.appReduceMotion ? nil : .easeInOut(duration: 0.25)) {
                 proxy.scrollTo(target, anchor: .center)
             }
         }
@@ -81,11 +79,11 @@ struct TrackListView: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text(title)
-                .font(.system(size: 18, weight: .semibold))
+                .font(.title2.weight(.semibold))
                 .foregroundColor(theme.text)
                 .lineLimit(1)
             Text(meta)
-                .font(.system(size: 11.5))
+                .font(.callout)
                 .foregroundColor(theme.mutedText(0.5))
                 .lineLimit(1)
 
@@ -98,7 +96,7 @@ struct TrackListView: View {
                         .scaleEffect(0.65)
                         .frame(width: 12, height: 12)
                     Text(L("扫描中…"))
-                        .font(.system(size: 10.5))
+                        .font(.subheadline)
                         .foregroundColor(theme.mutedText(0.5))
                 }
             }
@@ -153,7 +151,7 @@ struct TrackListView: View {
                     Icons.sortArrow(ascending: model.sortAscending)
                 }
             }
-            .font(.system(size: 10.5, weight: active ? .semibold : .regular))
+            .font(.subheadline.weight(active ? .semibold : .regular))
             .foregroundColor(active ? theme.accentLight : theme.mutedText(0.45))
             .frame(height: 22)
             .background {
@@ -218,7 +216,7 @@ struct TrackListView: View {
                 Icons.warning
                     .foregroundColor(theme.warning)
                 Text(message)
-                    .font(.system(size: 11.5))
+                    .font(.callout)
                     .foregroundColor(theme.text.opacity(0.82))
                     .lineLimit(2)
                 Spacer(minLength: 6)
@@ -247,7 +245,7 @@ struct TrackListView: View {
                     .foregroundColor(theme.mutedText(0.45))
                 Spacer(minLength: 0)
             }
-            .font(.system(size: 10.5))
+            .font(.subheadline)
             .buttonStyle(.plain)
             .foregroundColor(theme.accentLight)
         }
@@ -272,12 +270,13 @@ struct TrackListView: View {
         return VStack(spacing: 12) {
             Spacer(minLength: 0)
             Icons.emptyLibrary
+                .accessibilityHidden(true)
                 .foregroundColor(theme.mutedText(0.28))
             Text(emptyTitle(searching: searching, playlistEmpty: playlistEmpty))
-                .font(.system(size: 16, weight: .semibold))
+                .font(.title2.weight(.semibold))
                 .foregroundColor(theme.text.opacity(0.85))
             Text(emptyHint(searching: searching, playlistEmpty: playlistEmpty))
-                .font(.system(size: 12))
+                .font(.callout)
                 .foregroundColor(theme.mutedText(0.5))
                 .multilineTextAlignment(.center)
 
@@ -291,7 +290,7 @@ struct TrackListView: View {
                 }
             } label: {
                 Text(searching ? L("清空搜索") : (model.tracks.isEmpty ? L("选择文件夹") : L("查看全部音乐")))
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.callout.weight(.medium))
                     .foregroundColor(theme.accentLight)
                     .padding(.horizontal, 16)
                     .frame(height: 30)

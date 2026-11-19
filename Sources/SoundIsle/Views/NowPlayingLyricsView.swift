@@ -110,7 +110,7 @@ struct NowPlayingLyricsView: View {
                 HStack(spacing: 5) {
                     Icons.symbol("chevron.left", size: 10, weight: .semibold)
                     Text(L("返回列表"))
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(.callout.weight(.medium))
                 }
                 .foregroundColor(theme.accent.opacity(0.9))
                 .padding(.horizontal, 11)
@@ -132,7 +132,7 @@ struct NowPlayingLyricsView: View {
     // MARK: - Left column
 
     private var leftColumn: some View {
-        ScrollView(showsIndicators: false) {
+        ScrollView() {
             VStack(spacing: 6) {
                 Button {
                     model.toggleLyricsPage()
@@ -198,7 +198,7 @@ struct NowPlayingLyricsView: View {
                 Icons.symbol("waveform", size: 9)
                 Text(origin)
             }
-            .font(.system(size: 10, weight: .medium))
+            .font(.caption2.weight(.medium))
             .foregroundColor(theme.accentLight)
             .padding(.horizontal, 8)
             .frame(height: 20)
@@ -250,7 +250,7 @@ struct NowPlayingLyricsView: View {
 
     private func lyricsList(_ lyrics: Lyrics) -> some View {
         ScrollViewReader { proxy in
-            ScrollView(showsIndicators: false) {
+            ScrollView() {
                 LazyVStack(alignment: .leading, spacing: 8) {
                     ForEach(Array(lyrics.lines.enumerated()), id: \.offset) { index, line in
                         LyricLineRow(
@@ -289,7 +289,7 @@ struct NowPlayingLyricsView: View {
         guard let index = effectiveIndex(lyrics) else { return }
         DispatchQueue.main.async {
             if animated {
-                withAnimation(.easeInOut(duration: 0.32)) {
+                withAnimation(NSWorkspace.appReduceMotion ? nil : .easeInOut(duration: 0.32)) {
                     proxy.scrollTo(index, anchor: .center)
                 }
             } else {
@@ -309,10 +309,10 @@ struct NowPlayingLyricsView: View {
             Icons.symbol("text.alignleft", size: 34, weight: .light)
                 .foregroundColor(theme.mutedText(0.3))
             Text(model.isResolvingLyrics ? L("正在匹配歌词…") : L("暂无歌词"))
-                .font(.system(size: 15, weight: .medium))
+                .font(.title3.weight(.medium))
                 .foregroundColor(theme.text.opacity(0.85))
-            Text(model.isResolvingLyrics ? L("正在查找同名歌词与在线来源") : L("可以重试匹配，或导入本地歌词文件"))
-                .font(.system(size: 11.5))
+            Text(model.isResolvingLyrics ? L("正在查找同名歌词") : L("可以重试匹配，或导入本地歌词文件"))
+                .font(.callout)
                 .foregroundColor(theme.mutedText(0.5))
 
             HStack(spacing: 8) {
@@ -320,7 +320,7 @@ struct NowPlayingLyricsView: View {
                     model.retryLyrics()
                 } label: {
                     Text(L("重试匹配"))
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(.callout.weight(.medium))
                         .foregroundColor(theme.accentLight)
                         .padding(.horizontal, 13)
                         .frame(height: 28)
@@ -331,14 +331,14 @@ struct NowPlayingLyricsView: View {
                 .buttonStyle(.plain)
                 .disabled(model.currentTrack == nil || model.isResolvingLyrics)
                 .opacity(model.currentTrack == nil || model.isResolvingLyrics ? 0.45 : 1)
-                .help(L("重新查找同名歌词或在线匹配"))
+                .help(L("重新查找同名歌词"))
                 .accessibilityLabel(L("重试匹配"))
 
                 Button {
                     model.promptImportLyrics()
                 } label: {
                     Text(L("导入歌词…"))
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(.callout.weight(.medium))
                         .foregroundColor(theme.accentLight)
                         .padding(.horizontal, 13)
                         .frame(height: 28)
@@ -422,7 +422,7 @@ private struct ScrollingText: View {
         pending?.cancel()
         guard overflow > 0, !reduceMotion else { return }
         guard hovering else {
-            withAnimation(.easeOut(duration: 0.22)) { offset = 0 }
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) { offset = 0 }
             return
         }
         // A pointer that is only passing through should not start a slide.
@@ -475,7 +475,7 @@ private struct LyricLineRow: View {
             // Animate only colour and band, never layout: the type size is
             // shared by every line, so moving the highlight cannot reflow the
             // list or make glyphs jump between sizes.
-            .animation(.easeInOut(duration: 0.22), value: isCurrent)
+            .animation(NSWorkspace.appReduceMotion ? nil : .easeInOut(duration: 0.22), value: isCurrent)
         }
         .buttonStyle(.plain)
         .disabled(!canSeek)
@@ -511,7 +511,7 @@ private struct LyricLineRow: View {
         // colour and the accent band instead of growing, which is what made
         // the line change flash and reflow.
         Text(text.isEmpty ? " " : text)
-            .font(.system(size: 16, weight: isCurrent ? .semibold : .regular))
+            .font(.title2.weight(isCurrent ? .semibold : .regular))
             .foregroundColor(
                 isCurrent
                     ? theme.accent

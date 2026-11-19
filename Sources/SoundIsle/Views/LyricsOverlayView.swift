@@ -24,9 +24,7 @@ struct LyricsOverlayView: View {
     private var palette: ThemePalette {
         let settings = model.library.settings
         return ThemePalette.resolve(
-            preset: settings.preset,
             mode: settings.mode,
-            customAccentHex: settings.customAccentHex,
             systemIsDark: colorScheme == .dark
         )
     }
@@ -79,7 +77,7 @@ struct LyricsOverlayView: View {
                     // of covering the second line.
                     .padding(.bottom, showsHoverChrome ? 46 : 0)
                     .scaleEffect(showsHoverChrome ? 0.88 : 1, anchor: .center)
-                    .animation(.easeOut(duration: 0.18), value: showsHoverChrome)
+                    .animation(NSWorkspace.appReduceMotion ? nil : .easeOut(duration: 0.18), value: showsHoverChrome)
 
                 if !model.isLyricsLocked {
                     controls
@@ -90,9 +88,9 @@ struct LyricsOverlayView: View {
             .contentShape(shape)
             .contextMenu { lyricsMenu }
             .onHover { isHovering = $0 }
-            .animation(.easeOut(duration: 0.18), value: showsHoverChrome)
+            .animation(NSWorkspace.appReduceMotion ? nil : .easeOut(duration: 0.18), value: showsHoverChrome)
         }
-        .animation(.easeOut(duration: 0.18), value: showsGlass)
+        .animation(NSWorkspace.appReduceMotion ? nil : .easeOut(duration: 0.18), value: showsGlass)
         .soundIsleTheme(palette)
         .onChange(of: model.library.settings.lyricsOpacity) { opacity = $0 }
         .onChange(of: model.library.settings.lyricsOutline) { outline = $0 }
@@ -135,7 +133,7 @@ struct LyricsOverlayView: View {
                 .id(model.currentLyricLineIndex)
                 .transaction { $0.animation = nil }
             } else {
-                ScrollView(showsIndicators: false) {
+                ScrollView() {
                     VStack(spacing: fontSize * 0.25) {
                         ForEach(Array(lyrics.lines.enumerated()), id: \.offset) { _, line in
                             lyricText(
@@ -170,10 +168,10 @@ struct LyricsOverlayView: View {
                         model.retryLyrics()
                     }
                     .disabled(model.currentTrack == nil || model.isResolvingLyrics)
-                    .help(L("重新查找同名歌词或在线匹配"))
+                    .help(L("重新查找同名歌词"))
                 }
                 .buttonStyle(.plain)
-                .font(.system(size: 11))
+                .font(.subheadline)
                 .foregroundColor(palette.text.opacity(0.6))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -308,7 +306,7 @@ struct LyricsOverlayView: View {
         }
         .opacity(showsHoverChrome ? 1 : 0)
         .allowsHitTesting(showsHoverChrome)
-        .animation(.easeOut(duration: 0.15), value: showsHoverChrome)
+        .animation(NSWorkspace.appReduceMotion ? nil : .easeOut(duration: 0.15), value: showsHoverChrome)
     }
 
     /// Previous / play-pause / next, identical in the unlocked bar and the
@@ -375,7 +373,7 @@ struct LyricsOverlayView: View {
     ) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 10.5, weight: .medium))
+                .font(.subheadline.weight(.medium))
                 .foregroundColor(palette.text.opacity(isOn ? 1 : 0.8))
                 .padding(.horizontal, 6)
                 .frame(height: 22)

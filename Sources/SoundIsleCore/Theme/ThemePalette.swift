@@ -1,28 +1,5 @@
 import Foundation
 
-/// The six shipped skins. Raw values are persisted in `AppSettings.themePreset`,
-/// so they must never change.
-public enum ThemePreset: String, Codable, CaseIterable, Hashable {
-    // Celadon is the default and intentionally first in the picker.
-    case celadon
-    case deepBlue
-    case morning
-    case inkAmber
-    case berry
-    case seaSalt
-
-    public var displayName: String {
-        switch self {
-        case .deepBlue: return L("深空蓝")
-        case .morning: return L("晨光橙")
-        case .inkAmber: return L("墨黑琥珀")
-        case .celadon: return L("青瓷")
-        case .berry: return L("莓紫")
-        case .seaSalt: return L("海盐")
-        }
-    }
-}
-
 public enum ThemeMode: String, Codable, CaseIterable, Hashable {
     case system
     case light
@@ -53,29 +30,15 @@ public struct ThemeTokens: Equatable {
     }
 }
 
-public enum ThemeCatalog {
-    /// Preset accents, with an optional user accent overriding the colour.
-    /// An unparseable custom value falls back to the preset instead of
-    /// rendering an invisible or broken colour.
-    public static func tokens(
-        for preset: ThemePreset,
-        isDark: Bool,
-        customAccentHex: String? = nil
-    ) -> ThemeTokens {
-        let presetAccent: String
-        switch preset {
-        case .deepBlue: presetAccent = isDark ? "#7AA2FF" : "#3E6FE0"
-        case .morning: presetAccent = "#C2703D"
-        case .inkAmber: presetAccent = "#F5B942"
-        case .celadon: presetAccent = isDark ? "#4FB89A" : "#2F7D6A"
-        case .berry: presetAccent = "#B48CF2"
-        case .seaSalt: presetAccent = "#3E8FB0"
-        }
-
-        let custom = customAccentHex?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let accent = custom.flatMap { ThemeRGB(hex: $0) != nil ? $0 : nil } ?? presetAccent
-        return ThemeTokens(accentHex: accent, isDark: isDark)
-    }
+/// The app's fixed background skin: neutral greys, in light and dark. The
+/// accent comes from the user's macOS control accent colour at runtime, so
+/// there is no app-owned colour here.
+public enum ThemeSkin {
+    public static func panelTint(isDark: Bool) -> String { isDark ? "#1C1C1E" : "#FFFFFF" }
+    public static func playerTint(isDark: Bool) -> String { isDark ? "#101013" : "#F4F4F5" }
+    public static func backgroundTop(isDark: Bool) -> String { isDark ? "#212124" : "#F7F7F8" }
+    public static func backgroundMiddle(isDark: Bool) -> String { isDark ? "#1B1B1E" : "#EFEFF0" }
+    public static func backgroundBottom(isDark: Bool) -> String { isDark ? "#141416" : "#FAFAFB" }
 }
 
 public enum ThemeResolver {
@@ -158,7 +121,7 @@ public struct ThemeRGB: Equatable {
 }
 
 public extension AppSettings {
-    var preset: ThemePreset { ThemePreset(rawValue: themePreset) ?? .deepBlue }
+    /// The six-palette catalog and custom accent were removed; only light/dark
+    /// remains configurable.
     var mode: ThemeMode { ThemeMode(rawValue: themeMode) ?? .system }
-    var usesCoverRowStyle: Bool { rowStyle == "cover" }
 }

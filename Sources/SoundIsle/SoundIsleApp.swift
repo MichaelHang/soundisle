@@ -65,7 +65,7 @@ private struct PlaybackCommands: Commands {
     let model: AppModel
 
     var body: some Commands {
-        CommandMenu(L("播放菜单")) {
+        CommandMenu(L("控制")) {
             Button(L("播放 / 暂停")) {
                 model.togglePlayPause()
             }

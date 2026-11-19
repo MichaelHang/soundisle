@@ -424,3 +424,11 @@
 "取消下载…" = "Cancel download…";
 "已取消下载" = "Download cancelled";
 "隐藏主窗口" = "Hide Main Window";
+"连按播放" = "Double-click to play";
+"正在播放" = "Now playing";
+"已暂停" = "Paused";
+"打开专辑详情" = "Open album details";
+"打开歌手详情" = "Open artist details";
+"控制" = "Control";
+"从音乐库移除《%@》" = "Remove “%@” from Library";
+"从音乐库移除“%@”的全部歌曲" = "Remove All Songs by “%@”";

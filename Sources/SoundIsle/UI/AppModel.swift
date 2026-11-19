@@ -78,6 +78,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var isSettingsOpen = false
     private weak var settingsWindow: NSWindow?
     private var settingsWindowObservers: [NSObjectProtocol] = []
+    private var isSettingsModalRunning = false
     /// The `\.openSettings` environment action, captured by the main window
     /// on appear. Nil before that (then the stable AppKit selector runs).
     private var settingsOpener: (() -> Void)?
@@ -134,10 +135,10 @@ final class AppModel: ObservableObject {
 
     private var cancellables = Set<AnyCancellable>()
     private var saveTimer: Timer?
-    private var customAccentSaveTask: Task<Void, Never>?
     private var lyricsOpacitySaveTask: Task<Void, Never>?
     private var keyMonitor: Any?
     private var searchFocusMonitor: Any?
+    private var accentChangeObserver: NSObjectProtocol?
     private var didStart = false
     /// Anchor row for Shift-click range selection.
     private var selectionAnchorID: UUID?
@@ -187,12 +188,7 @@ final class AppModel: ObservableObject {
             directory: directory.appendingPathComponent("lyrics", isDirectory: true)
         )
         self.lyricsCache = lyricsCache
-        self.lyricsService = LyricsService(
-            cache: lyricsCache,
-            client: LRCLIBClient(
-                endpoint: LRCLIBClient.endpointURL(from: library.settings.lyricsEndpoint)
-            )
-        )
+        self.lyricsService = LyricsService(cache: lyricsCache)
 
         self.updates = UpdateController(
             currentVersion: UpdateController.installedVersion,
@@ -219,6 +215,7 @@ final class AppModel: ObservableObject {
         observeEngine()
         loadLyrics(for: currentTrack)
         installKeyMonitor()
+        installAccentChangeObserver()
         installSearchFocusMonitor()
         refreshTranscodeCacheSize()
         applyAppearance()
@@ -234,10 +231,12 @@ final class AppModel: ObservableObject {
     deinit {
         appNoticeTask?.cancel()
         lyricsTask?.cancel()
-        customAccentSaveTask?.cancel()
         lyricsOpacitySaveTask?.cancel()
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         if let searchFocusMonitor { NSEvent.removeMonitor(searchFocusMonitor) }
+        if let accentChangeObserver {
+            DistributedNotificationCenter.default.removeObserver(accentChangeObserver)
+        }
         saveTimer?.invalidate()
     }
 
@@ -277,13 +276,38 @@ final class AppModel: ObservableObject {
         settingsWindowObservers.append(center.addObserver(
             forName: NSWindow.willCloseNotification, object: window, queue: .main
         ) { [weak self] _ in
-            self?.isSettingsOpen = false
+            self?.settingsWindowWillClose()
         })
         settingsWindowObservers.append(center.addObserver(
             forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
         ) { [weak self] _ in
-            self?.isSettingsOpen = true
+            self?.settingsWindowDidBecomeKey()
         })
+    }
+
+    /// The user expects settings to behave as a dialog: while it is on
+    /// screen, the main window must not swallow clicks. `runModal` gives
+    /// exactly that — the settings window becomes the app's modal window and
+    /// every other window stops receiving events until it closes. Closing
+    /// (red button or `settingsWindowWillClose`) ends the session.
+    private func settingsWindowDidBecomeKey() {
+        isSettingsOpen = true
+        guard !isSettingsModalRunning else { return }
+        isSettingsModalRunning = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let window = self.settingsWindow else {
+                self?.isSettingsModalRunning = false
+                return
+            }
+            _ = NSApp.runModal(for: window)
+            self.isSettingsModalRunning = false
+            self.isSettingsOpen = false
+        }
+    }
+
+    private func settingsWindowWillClose() {
+        if isSettingsModalRunning { NSApp.stopModal() }
+        isSettingsOpen = false
     }
 
     /// Opens the settings window via the `\.openSettings` environment action
@@ -291,12 +315,15 @@ final class AppModel: ObservableObject {
     /// selector before the main window's views have captured it.
     func openSettings() {
         NSApp.activate(ignoringOtherApps: true)
+        if isSettingsOpen, let settingsWindow {
+            settingsWindow.makeKeyAndOrderFront(nil)
+            return
+        }
         if let settingsOpener {
             settingsOpener()
         } else {
             NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
         }
-        isSettingsOpen = true
     }
 
     // MARK: - Updates
@@ -418,7 +445,7 @@ final class AppModel: ObservableObject {
         // list instead of leaving the sidebar and the page out of sync.
         if showsLyricsPage {
             listScrollTarget = currentTrack?.id
-            withAnimation(.easeOut(duration: 0.18)) {
+            withAnimation(NSWorkspace.appReduceMotion ? nil : .easeOut(duration: 0.18)) {
                 showsLyricsPage = false
             }
         }
@@ -1245,7 +1272,7 @@ final class AppModel: ObservableObject {
         if showsLyricsPage {
             listScrollTarget = currentTrack?.id
         }
-        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+        withAnimation(NSWorkspace.appReduceMotion ? nil : .spring(response: 0.42, dampingFraction: 0.86)) {
             showsLyricsPage.toggle()
         }
     }
@@ -1501,7 +1528,6 @@ final class AppModel: ObservableObject {
             currentLyricLineIndex = nil
         }
 
-        lyricsService.isOnlineEnabled = library.settings.onlineLyricsEnabled
         lyricsTask = Task { [weak self] in
             guard let self else { return }
             let resolved = await self.lyricsService.resolve(for: track)
@@ -1549,37 +1575,10 @@ final class AppModel: ObservableObject {
         NSApplication.shared.appearance = appearance
     }
 
-    func setThemePreset(_ preset: ThemePreset) {
-        guard library.settings.themePreset != preset.rawValue else { return }
-        library.settings.themePreset = preset.rawValue
-        saveSettingsAndNotify()
-    }
-
     func setThemeMode(_ mode: ThemeMode) {
         guard library.settings.themeMode != mode.rawValue else { return }
         library.settings.themeMode = mode.rawValue
         applyAppearance()
-        saveSettingsAndNotify()
-    }
-
-    /// Applied live for immediate preview, but the JSON write is debounced:
-    /// `ColorPicker` emits continuously while the user drags the colour wheel.
-    func setCustomAccent(hex: String?) {
-        guard library.settings.customAccentHex != hex else { return }
-        library.settings.customAccentHex = hex
-        objectWillChange.send()
-        customAccentSaveTask?.cancel()
-        customAccentSaveTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 300_000_000)
-            guard !Task.isCancelled, let self else { return }
-            self.library.saveSettings()
-        }
-    }
-
-    func setRowStyle(cover: Bool) {
-        let style = cover ? "cover" : "index"
-        guard library.settings.rowStyle != style else { return }
-        library.settings.rowStyle = style
         saveSettingsAndNotify()
     }
 
@@ -1639,34 +1638,6 @@ final class AppModel: ObservableObject {
         alert.informativeText = "重启声屿后生效。\nTakes effect after restarting SoundIsle."
         alert.addButton(withTitle: L("确定"))
         presentAlert(alert)
-    }
-
-    func setOnlineLyricsEnabled(_ enabled: Bool) {
-        guard library.settings.onlineLyricsEnabled != enabled else { return }
-        library.settings.onlineLyricsEnabled = enabled
-        lyricsService.isOnlineEnabled = enabled
-        saveSettingsAndNotify()
-        if enabled {
-            loadLyrics(for: currentTrack)
-        }
-    }
-
-    /// Returns a user-facing error when `raw` is not a usable http(s) URL;
-    /// `nil` means the endpoint was saved (or cleared to the default).
-    @discardableResult
-    func setLyricsEndpoint(_ raw: String?) -> String? {
-        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalized = (trimmed?.isEmpty ?? true) ? nil : trimmed
-        if let normalized, LRCLIBClient.endpointURL(from: normalized) == nil {
-            return L("歌词源地址无效，请输入 http 或 https 链接。")
-        }
-        guard library.settings.lyricsEndpoint != normalized else { return nil }
-        library.settings.lyricsEndpoint = normalized
-        lyricsService.client = LRCLIBClient(
-            endpoint: LRCLIBClient.endpointURL(from: normalized)
-        )
-        saveSettingsAndNotify()
-        return nil
     }
 
     /// The spectrum tap runs only while someone draws it: the mini window is
@@ -1982,6 +1953,18 @@ final class AppModel: ObservableObject {
             current = candidate.superview
         }
         return false
+    }
+
+    /// The accent colour now comes from the user's macOS control accent; when
+    /// they change it in System Settings, redraw every themed surface.
+    private func installAccentChangeObserver() {
+        accentChangeObserver = DistributedNotificationCenter.default.addObserver(
+            forName: NSNotification.Name("AppleColorPreferencesChangedNotification"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.objectWillChange.send()
+        }
     }
 
     private func installKeyMonitor() {
