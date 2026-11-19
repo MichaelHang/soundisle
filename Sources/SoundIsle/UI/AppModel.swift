@@ -73,7 +73,18 @@ final class AppModel: ObservableObject {
     /// The missing-ffmpeg banner adds install/retry/choose-path actions.
     @Published private(set) var ffmpegPrompt = FFmpegPrompt()
     @Published private(set) var transcodeCacheBytes: Int64 = 0
-    @Published var isSettingsPresented = false
+    /// True while the standalone settings window is on screen. Maintained by
+    /// the window's key/close notifications; see `registerSettingsWindow`.
+    @Published private(set) var isSettingsOpen = false
+    private weak var settingsWindow: NSWindow?
+    private var settingsWindowObservers: [NSObjectProtocol] = []
+    /// The `\.openSettings` environment action, captured by the main window
+    /// on appear. Nil before that (then the stable AppKit selector runs).
+    private var settingsOpener: (() -> Void)?
+
+    func setSettingsOpener(_ action: @escaping () -> Void) {
+        settingsOpener = action
+    }
     /// Main content area: track list or the full-window lyrics page. UI state
     /// only; the desktop overlay and playback are unaffected.
     @Published var showsLyricsPage = false
@@ -130,6 +141,13 @@ final class AppModel: ObservableObject {
     private var didStart = false
     /// Anchor row for Shift-click range selection.
     private var selectionAnchorID: UUID?
+    /// The ⇧-extended end of the row selection; plain ↑↓ moves it, ⇧↑↓ swings
+    /// it around the stationary anchor, Finder-style.
+    private var listSelectionHead: UUID?
+    /// The on-screen track list of an album/artist detail page, published on
+    /// appear so ↑↓/⌘A navigate what the user is actually looking at. Nil in
+    /// flat views, where `visibleTracks` is the on-screen list.
+    @Published var focusedTrackList: [Track]?
     /// Lyrics resolution is fully async; switching tracks cancels the previous
     /// lookup and ignores its late result.
     private let lyricsCache: LyricsCache
@@ -245,6 +263,40 @@ final class AppModel: ObservableObject {
         didStart = true
         guard !library.index.folders.isEmpty else { return }
         Task { await rescan() }
+    }
+
+    // MARK: - Settings window
+
+    /// The settings window registers itself on first appearance. SwiftUI's
+    /// Settings scene keeps the window alive after closing, so these
+    /// observers keep `isSettingsOpen` truthful across open/close cycles.
+    func registerSettingsWindow(_ window: NSWindow) {
+        guard settingsWindow !== window else { return }
+        settingsWindow = window
+        let center = NotificationCenter.default
+        settingsWindowObservers.append(center.addObserver(
+            forName: NSWindow.willCloseNotification, object: window, queue: .main
+        ) { [weak self] _ in
+            self?.isSettingsOpen = false
+        })
+        settingsWindowObservers.append(center.addObserver(
+            forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
+        ) { [weak self] _ in
+            self?.isSettingsOpen = true
+        })
+    }
+
+    /// Opens the settings window via the `\.openSettings` environment action
+    /// (public API, macOS 14+), falling back to AppKit's stable settings
+    /// selector before the main window's views have captured it.
+    func openSettings() {
+        NSApp.activate(ignoringOtherApps: true)
+        if let settingsOpener {
+            settingsOpener()
+        } else {
+            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        }
+        isSettingsOpen = true
     }
 
     // MARK: - Updates
@@ -439,6 +491,61 @@ final class AppModel: ObservableObject {
         play(trackID: trackID, source: source)
     }
 
+    // MARK: - List keyboard navigation
+
+    /// The list ↑↓/⌘A operate on: a detail page's on-screen rows when one is
+    /// open, otherwise the current flat view.
+    private var keyboardNavTracks: [Track] {
+        focusedTrackList ?? visibleTracks
+    }
+
+    /// ↑↓ moves the row selection like Finder: plain keys collapse to a
+    /// single row, ⇧ extends from the anchor, and the row scrolls into view.
+    func moveListSelection(_ offset: Int, extending: Bool) {
+        // The card grids have no rows to move through.
+        if focusedTrackList == nil && isGroupedSelection { return }
+        let list = keyboardNavTracks
+        guard !list.isEmpty else { return }
+        let ids = list.map(\.id)
+        let currentIndex = extending
+            ? listSelectionHead.flatMap { ids.firstIndex(of: $0) }
+            : selectionAnchorID.flatMap { ids.firstIndex(of: $0) }
+
+        let nextIndex: Int
+        let newID: UUID
+        switch currentIndex {
+        case .some(let index):
+            nextIndex = min(max(index + offset, 0), ids.count - 1)
+            newID = ids[nextIndex]
+        case nil:
+            // Nothing selected yet: ↓ starts at the top, ↑ at the bottom.
+            nextIndex = offset > 0 ? 0 : ids.count - 1
+            newID = ids[nextIndex]
+            selectionAnchorID = newID
+        }
+
+        if extending, let anchor = selectionAnchorID, let anchorIndex = ids.firstIndex(of: anchor) {
+            listSelectionHead = newID
+            let range = anchorIndex <= nextIndex ? anchorIndex...nextIndex : nextIndex...anchorIndex
+            selectedTrackIDs = Set(ids[range])
+        } else {
+            selectedTrackIDs = [newID]
+            selectionAnchorID = newID
+            listSelectionHead = newID
+        }
+        listScrollTarget = newID
+    }
+
+    /// ⌘A over a list selects its on-screen rows.
+    func selectAllInList() {
+        if focusedTrackList == nil && isGroupedSelection { return }
+        let list = keyboardNavTracks
+        guard !list.isEmpty else { return }
+        selectedTrackIDs = Set(list.map(\.id))
+        selectionAnchorID = list.last?.id
+        listSelectionHead = list.last?.id
+    }
+
     /// Rows a context-menu action applies to: the whole selection when the
     /// clicked row belongs to it, otherwise only the clicked row.
     func contextTrackIDs(for trackID: UUID) -> [UUID] {
@@ -453,6 +560,59 @@ final class AppModel: ObservableObject {
         let matched = visibleTracks.filter { ids.contains($0.id) }
         if !matched.isEmpty { return matched }
         return tracks.filter { ids.contains($0.id) }
+    }
+
+    // MARK: - Dialogs
+
+    /// True while one of our sheets or app-modal dialogs is up. Space typed
+    /// into a rename field would otherwise also hit the 播放/暂停 menu
+    /// equivalent, so the menu item checks this.
+    @Published private(set) var hasActiveSheet = false
+
+    /// HIG: dialogs attach to their window as sheets instead of halting the
+    /// whole app. When no main window is on screen (mini-player-only mode) or
+    /// one is already showing a sheet, fall back to app-modal presentation.
+    func presentAlert(
+        _ alert: NSAlert,
+        completion: ((NSApplication.ModalResponse) -> Void)? = nil
+    ) {
+        hasActiveSheet = true
+        guard let window = sheetPresentationWindow else {
+            let response = alert.runModal()
+            NSApp.keyWindow?.makeFirstResponder(nil)
+            hasActiveSheet = false
+            completion?(response)
+            return
+        }
+        alert.beginSheetModal(for: window) { [weak self] response in
+            NSApp.keyWindow?.makeFirstResponder(nil)
+            self?.hasActiveSheet = false
+            completion?(response)
+        }
+    }
+
+    func presentPanel(
+        _ panel: NSOpenPanel,
+        completion: @escaping (NSApplication.ModalResponse) -> Void
+    ) {
+        hasActiveSheet = true
+        guard let window = sheetPresentationWindow else {
+            let response = panel.runModal()
+            NSApp.keyWindow?.makeFirstResponder(nil)
+            hasActiveSheet = false
+            completion(response)
+            return
+        }
+        panel.beginSheetModal(for: window) { [weak self] response in
+            NSApp.keyWindow?.makeFirstResponder(nil)
+            self?.hasActiveSheet = false
+            completion(response)
+        }
+    }
+
+    private var sheetPresentationWindow: NSWindow? {
+        guard let window = NSApp.mainWindow, window.attachedSheet == nil else { return nil }
+        return window
     }
 
     // MARK: - Playlists
@@ -511,36 +671,42 @@ final class AppModel: ObservableObject {
 
     /// AppKit saves us from macOS 13-only SwiftUI alert text fields.
     func promptCreatePlaylist() {
-        guard let name = promptForPlaylistName(
+        promptForPlaylistName(
             title: L("新建播放列表"),
             message: L("输入播放列表名称。"),
             value: ""
-        ) else { return }
-        let playlist = createPlaylist(named: name)
-        select(.playlist(playlist.id))
+        ) { [weak self] name in
+            guard let self, let name else { return }
+            let playlist = self.createPlaylist(named: name)
+            self.select(.playlist(playlist.id))
+        }
     }
 
     /// The track menu's 新建播放列表…: prompt for a name, create the list and
     /// drop the given tracks straight in — no view switch, unlike the
     /// sidebar's + button.
     func createPlaylistFromPrompt(adding trackIDs: [UUID]) {
-        guard let name = promptForPlaylistName(
+        promptForPlaylistName(
             title: L("新建播放列表"),
             message: L("输入播放列表名称。"),
             value: ""
-        ) else { return }
-        let playlist = createPlaylist(named: name)
-        addToPlaylist(playlist.id, trackIDs: trackIDs)
+        ) { [weak self] name in
+            guard let self, let name else { return }
+            let playlist = self.createPlaylist(named: name)
+            self.addToPlaylist(playlist.id, trackIDs: trackIDs)
+        }
     }
 
     func promptRenamePlaylist(id: UUID) {
-        guard let existing = playlists.playlists.first(where: { $0.id == id }),
-              let name = promptForPlaylistName(
-                  title: L("重命名播放列表"),
-                  message: L("输入新的名称。"),
-                  value: existing.name
-              ) else { return }
-        renamePlaylist(id: id, to: name)
+        guard let existing = playlists.playlists.first(where: { $0.id == id }) else { return }
+        promptForPlaylistName(
+            title: L("重命名播放列表"),
+            message: L("输入新的名称。"),
+            value: existing.name
+        ) { [weak self] name in
+            guard let self, let name else { return }
+            self.renamePlaylist(id: id, to: name)
+        }
     }
 
     func confirmDeletePlaylist(id: UUID) {
@@ -550,13 +716,18 @@ final class AppModel: ObservableObject {
         alert.informativeText = L("只会删除播放列表，歌曲文件不受影响。")
         alert.addButton(withTitle: L("删除"))
         alert.addButton(withTitle: L("取消"))
-        let response = alert.runModal()
-        NSApp.keyWindow?.makeFirstResponder(nil)
-        guard response == .alertFirstButtonReturn else { return }
-        deletePlaylist(id: id)
+        presentAlert(alert) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.deletePlaylist(id: id)
+        }
     }
 
-    private func promptForPlaylistName(title: String, message: String, value: String) -> String? {
+    private func promptForPlaylistName(
+        title: String,
+        message: String,
+        value: String,
+        completion: @escaping (String?) -> Void
+    ) {
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = message
@@ -566,10 +737,9 @@ final class AppModel: ObservableObject {
         field.stringValue = value
         alert.accessoryView = field
         alert.window.initialFirstResponder = field
-        let response = alert.runModal()
-        NSApp.keyWindow?.makeFirstResponder(nil)
-        guard response == .alertFirstButtonReturn else { return nil }
-        return field.stringValue
+        presentAlert(alert) { response in
+            completion(response == .alertFirstButtonReturn ? field.stringValue : nil)
+        }
     }
 
     func trackCount(in folder: URL) -> Int {
@@ -586,9 +756,8 @@ final class AppModel: ObservableObject {
 
     // MARK: - Import
 
-    /// Opens the system folder picker. The caller hands the URLs back to
-    /// `importFolders(_:)`.
-    func openFolders() -> [URL] {
+    /// Opens the system folder picker as a sheet and imports what comes back.
+    func promptImportFolders() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -596,12 +765,10 @@ final class AppModel: ObservableObject {
         panel.canCreateDirectories = false
         panel.prompt = L("导入")
         panel.message = L("选择包含音乐的文件夹")
-        let response = panel.runModal()
-        // The search field is the only text field in the window and AppKit may
-        // hand it focus when the panel closes, which would swallow space/arrow
-        // playback shortcuts. Leave focus on the window itself.
-        NSApp.keyWindow?.makeFirstResponder(nil)
-        return response == .OK ? panel.urls : []
+        presentPanel(panel) { [weak self] response in
+            guard response == .OK else { return }
+            self?.importFolders(panel.urls)
+        }
     }
 
     /// Accepts folders, or files dropped from Finder (whose containing folder
@@ -987,31 +1154,36 @@ final class AppModel: ObservableObject {
 
     /// Returns nil when the picker was cancelled.
     @discardableResult
-    func chooseFFmpegPath() -> String? {
+    func chooseFFmpegPath(completion: ((String?) -> Void)? = nil) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.prompt = L("选择")
         panel.message = L("选择 ffmpeg 可执行文件")
-        let response = panel.runModal()
-        NSApp.keyWindow?.makeFirstResponder(nil)
-        guard response == .OK, let url = panel.url else { return nil }
-        guard FileManager.default.isExecutableFile(atPath: url.path) else {
-            let message = L("所选文件不可执行，请选择 ffmpeg 可执行文件。")
-            statusMessage = message
-            return message
+        presentPanel(panel) { [weak self] response in
+            guard response == .OK, let url = panel.url else {
+                completion?(nil)
+                return
+            }
+            guard let self else { return }
+            guard FileManager.default.isExecutableFile(atPath: url.path) else {
+                let message = L("所选文件不可执行，请选择 ffmpeg 可执行文件。")
+                self.statusMessage = message
+                completion?(message)
+                return
+            }
+            self.library.settings.ffmpegPath = url.path
+            self.library.saveSettings()
+            self.transcode.updateFFmpeg(url)
+            self.ffmpegPrompt.clear()
+            let message = Lf("已使用 FFmpeg：%@", url.path)
+            self.statusMessage = message
+            self.prepareLibraryFormats()
+            self.retryPendingTranscode()
+            self.objectWillChange.send()
+            completion?(message)
         }
-        library.settings.ffmpegPath = url.path
-        library.saveSettings()
-        transcode.updateFFmpeg(url)
-        ffmpegPrompt.clear()
-        let message = Lf("已使用 FFmpeg：%@", url.path)
-        statusMessage = message
-        prepareLibraryFormats()
-        retryPendingTranscode()
-        objectWillChange.send()
-        return message
     }
 
     func copyFFmpegInstallCommand() {
@@ -1249,9 +1421,13 @@ final class AppModel: ObservableObject {
             types.insert(lrc, at: 0)
         }
         panel.allowedContentTypes = types
-        let response = panel.runModal()
-        NSApp.keyWindow?.makeFirstResponder(nil)
-        guard response == .OK, let url = panel.url else { return }
+        presentPanel(panel) { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            self?.applyImportedLyrics(at: url, for: track)
+        }
+    }
+
+    private func applyImportedLyrics(at url: URL, for track: Track) {
         guard let text = LyricsService.readText(at: url) else {
             statusMessage = L("无法读取歌词文件。")
             return
@@ -1272,7 +1448,7 @@ final class AppModel: ObservableObject {
             statusMessage = Lf("无法保存歌词：%@", error.localizedDescription)
             return
         }
-        // The open panel is modal, but a media key can still change tracks.
+        // A media key can still change tracks while the panel is up.
         guard currentTrack?.id == track.id else {
             loadLyrics(for: currentTrack)
             return
@@ -1462,8 +1638,7 @@ final class AppModel: ObservableObject {
         alert.messageText = L("语言已更改")
         alert.informativeText = "重启声屿后生效。\nTakes effect after restarting SoundIsle."
         alert.addButton(withTitle: L("确定"))
-        alert.runModal()
-        NSApp.keyWindow?.makeFirstResponder(nil)
+        presentAlert(alert)
     }
 
     func setOnlineLyricsEnabled(_ enabled: Bool) {
@@ -1818,14 +1993,19 @@ final class AppModel: ObservableObject {
 
     private func handleKeyEvent(_ event: NSEvent) -> Bool {
         if NSApp.modalWindow == nil, event.keyCode == 53, isSearchFocused {
-            endSearchFocus()
+            // NSSearchField convention: first Esc clears, second returns focus.
+            if !searchText.isEmpty {
+                searchText = ""
+            } else {
+                endSearchFocus()
+            }
             return true
         }
         // Space/arrows belong to the main window only. Any presented sheet
         // (settings, lyrics import) owns the keyboard, and panels such as the
         // lyrics overlay must not receive playback shortcuts.
         guard NSApp.modalWindow == nil,
-              !isSettingsPresented,
+              !isSettingsOpen,
               isMainWindowKey,
               !isSearchFocused,
               !isEditingText else { return false }
@@ -1836,6 +2016,9 @@ final class AppModel: ObservableObject {
             .intersection([.command, .option, .control, .shift])
         if commandChord == .command, !event.isARepeat {
             switch event.keyCode {
+            case 0: // ⌘A
+                selectAllInList()
+                return true
             case 3: // ⌘F
                 requestSearchFocus()
                 return true
@@ -1861,6 +2044,12 @@ final class AppModel: ObservableObject {
             return true
         case 124: // right arrow
             seek(by: 5)
+            return true
+        case 125: // down arrow
+            moveListSelection(1, extending: event.modifierFlags.contains(.shift))
+            return true
+        case 126: // up arrow
+            moveListSelection(-1, extending: event.modifierFlags.contains(.shift))
             return true
         default:
             return false

@@ -3,7 +3,7 @@ import SoundIsleCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// One source of truth for the list's five columns. Header buttons and every
+/// One source of truth for the list's four columns. Header buttons and every
 /// row use the same widths, so labels stay over their data at any window
 /// width. The compact target is 900pt: 190 sidebar + 36 outer padding leaves
 /// room for title to flex next to these fixed columns.
@@ -14,16 +14,15 @@ enum TrackColumns {
     static let artist: CGFloat = 110
     static let album: CGFloat = 130
     static let duration: CGFloat = 50
-    static let added: CGFloat = 82
     static let rowHeight: CGFloat = 34
 }
 
 /// One row of the track list, shared by the flat list and the album/artist
 /// browser so the two never drift apart.
 ///
-/// `showsArtistColumn` / `showsAlbumColumn` / `showsAddedColumn` drop the
-/// columns the surrounding page already states: an album detail page names the
-/// album in its header, and the 修改时间 column only matters in flat lists.
+/// `showsArtistColumn` / `showsAlbumColumn` drop the columns the surrounding
+/// page already states: an album detail page names the album in its header,
+/// an artist page names the artist.
 struct TrackRow: View {
     @Environment(\.theme) private var theme
     let track: Track
@@ -36,20 +35,12 @@ struct TrackRow: View {
     var titleDetail: String? = nil
     var showsArtistColumn: Bool = true
     var showsAlbumColumn: Bool = true
-    var showsAddedColumn: Bool = true
     /// Single click selects; double click plays. Declared count:2 first so
     /// the double-click gesture wins over the plain one.
     let onTap: () -> Void
     var onDoubleClick: () -> Void = {}
 
     @State private var isHovering = false
-
-    private static let addedFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = .current
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }()
 
     var body: some View {
         // A plain row instead of a `Button`: a Button swallows the drag
@@ -101,14 +92,6 @@ struct TrackRow: View {
                 .monospacedDigit()
                 .foregroundColor(theme.mutedText(0.45))
                 .frame(width: TrackColumns.duration, alignment: .trailing)
-
-            if showsAddedColumn {
-                Text(Self.addedFormatter.string(from: track.modifiedAt))
-                    .font(.system(size: 10))
-                    .monospacedDigit()
-                    .foregroundColor(theme.mutedText(0.4))
-                    .frame(width: TrackColumns.added, alignment: .trailing)
-            }
         }
         .padding(.horizontal, TrackColumns.rowPadding)
         .frame(height: TrackColumns.rowHeight)

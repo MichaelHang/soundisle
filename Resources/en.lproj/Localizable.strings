@@ -374,6 +374,12 @@
 "无法写入转码缓存：%@" = "Could not write to the transcode cache: %@";
 "在访达中显示" = "Show in Finder";
 "新建播放列表…" = "New Playlist…";
+"清除搜索" = "Clear Search";
+"显示剩余时间" = "Show Remaining Time";
+"显示总时长" = "Show Total Duration";
+"剩余时间" = "Remaining Time";
+"总时长" = "Total Duration";
+"点按切换显示" = "Click to toggle display";
 
 /* Updates. */
 "更新" = "Updates";

@@ -3,18 +3,15 @@ import SoundIsleCore
 import SwiftUI
 
 /// Settings shell: cache/FFmpeg, lyrics, appearance, and missing/unreadable
-/// files collected by the scanner.
+/// files collected by the scanner. Presented in the app's standalone settings
+/// window (SwiftUI `Settings` scene); no Done button — settings apply
+/// immediately and the window closes from its own close button, like
+/// Music's settings.
 struct SettingsView: View {
     @ObservedObject var model: AppModel
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @State private var folderNotice: String?
     @State private var cacheNotice: String?
-    /// Identifies the sheet window so clicks inside it (and in nested
-    /// popovers) can be distinguished from a click on the window behind.
-    @State private var sheetWindow: NSWindow?
-    @State private var focusReleaseMonitor: Any?
-    @State private var outsideClickMonitor: Any?
     @State private var lyricsEndpointText = ""
     @State private var lyricsEndpointNotice: String?
 
@@ -30,56 +27,30 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text(L("设置"))
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(palette.text)
-                Spacer()
-                Button(L("完成")) {
-                    dismiss()
-                }
-                .keyboardShortcut(.defaultAction)
+        ScrollView {
+            VStack(spacing: 10) {
+                missingFilesSection
+                cacheSection
+                lyricsSection
+                appearanceSection
             }
-            .padding(.horizontal, 22)
-            .frame(height: 52)
-
-            Rectangle()
-                .fill(palette.hairline)
-                .frame(height: 1)
-
-            ScrollView {
-                VStack(spacing: 10) {
-                    missingFilesSection
-                    cacheSection
-                    lyricsSection
-                    appearanceSection
-                }
-                .padding(22)
-            }
+            .padding(22)
         }
-        // Keep the sheet shorter than the 600pt minimum main window so a
-        // minimized window can still present it; the content scrolls.
         .frame(width: 580, height: 560)
         .background(AppBackground())
-        .background(SheetWindowConfigurator { sheetWindow = $0 })
+        .background(SettingsWindowConfigurator { model.registerSettingsWindow($0) })
         .soundIsleTheme(palette)
         .onAppear {
             model.refreshTranscodeCacheSize()
             lyricsEndpointText = settings.lyricsEndpoint ?? ""
-            installOutsideClickMonitor()
-            installFocusReleaseMonitor()
             // Don't let the endpoint field take the initial focus just because
-            // it is the first text field in the sheet.
+            // it is the first text field in the window.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                 NSApp.keyWindow?.makeFirstResponder(nil)
             }
         }
         .onDisappear {
             saveLyricsEndpoint()
-            removeOutsideClickMonitor()
-            if let focusReleaseMonitor { NSEvent.removeMonitor(focusReleaseMonitor) }
-            focusReleaseMonitor = nil
         }
     }
 
@@ -220,8 +191,10 @@ struct SettingsView: View {
                     cacheNotice = model.redetectFFmpeg()
                 }
                 Button(L("选择文件…")) {
-                    if let message = model.chooseFFmpegPath() {
-                        cacheNotice = message
+                    model.chooseFFmpegPath { message in
+                        if let message {
+                            cacheNotice = message
+                        }
                     }
                 }
             }
@@ -564,53 +537,6 @@ struct SettingsView: View {
         .glassPanel(cornerRadius: 10)
     }
 
-    /// A click on the main window behind the sheet dismisses it. Clicks inside
-    /// the sheet, in a nested popover (ColorPicker), or on chrome with no
-    /// window are left alone.
-    /// Clicking a non-text control inside the sheet resigns the endpoint
-    /// field; otherwise it keeps the keyboard focus after the user clicks away.
-    private func installFocusReleaseMonitor() {
-        focusReleaseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { event in
-            guard let window = event.window, window.isSheet,
-                  let hit = window.contentView?.hitTest(event.locationInWindow) else { return event }
-            if !Self.isTextInput(hit) {
-                window.makeFirstResponder(nil)
-            }
-            return event
-        }
-    }
-
-    private static func isTextInput(_ view: NSView?) -> Bool {
-        var current = view
-        while let candidate = current {
-            if candidate is NSTextField || candidate is NSTextView { return true }
-            current = candidate.superview
-        }
-        return false
-    }
-
-    private func installOutsideClickMonitor() {
-        guard outsideClickMonitor == nil else { return }
-        outsideClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { event in
-            guard let window = event.window else { return event }
-            if let sheetWindow, window === sheetWindow { return event }
-            // Popovers and menus are their own panel windows; a click there is
-            // still "inside" the settings interaction.
-            if window is NSPanel || window.isSheet { return event }
-            if window.className.contains("Popover") || window.className.contains("Menu") {
-                return event
-            }
-            guard window.canBecomeMain else { return event }
-            dismiss()
-            return event
-        }
-    }
-
-    private func removeOutsideClickMonitor() {
-        if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor) }
-        outsideClickMonitor = nil
-    }
-
     /// Saves on submit/focus loss. An invalid non-empty value keeps the text
     /// in place so it can be corrected, shows a notice, and is not persisted.
     private func saveLyricsEndpoint() {
@@ -631,18 +557,18 @@ struct SettingsView: View {
         panel.prompt = L("重新定位")
         panel.message = Lf("选择《%@》的新位置", track.title)
         panel.nameFieldStringValue = track.url.lastPathComponent
-        let response = panel.runModal()
-        NSApp.keyWindow?.makeFirstResponder(nil)
-        guard response == .OK, let url = panel.url else { return }
-        folderNotice = model.relocateTrack(track, to: url)
+        model.presentPanel(panel) { response in
+            guard response == .OK, let url = panel.url else { return }
+            folderNotice = model.relocateTrack(track, to: url)
+        }
     }
 }
 
-// MARK: - Sheet window
+// MARK: - Settings window
 
-/// A sheet is its own window; clearing it lets the `AppBackground` material
-/// blur the main window instead of painting an opaque sheet.
-private struct SheetWindowConfigurator: NSViewRepresentable {
+/// Captures the standalone settings window for the model, and keeps the
+/// themed glass background instead of an opaque white window.
+private struct SettingsWindowConfigurator: NSViewRepresentable {
     var onWindow: ((NSWindow) -> Void)?
 
     func makeNSView(context: Context) -> NSView {

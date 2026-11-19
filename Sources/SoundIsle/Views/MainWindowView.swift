@@ -12,6 +12,9 @@ struct MainWindowView: View {
     @FocusState private var searchFocused: Bool
     @State private var isDropTargeted = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    // macOS 14's public settings-opening action, handed to the model so the
+    // menu bar and the gear button share one code path.
+    @Environment(\.openSettings) private var systemOpenSettings
 
     private var palette: ThemePalette {
         let settings = model.library.settings
@@ -68,7 +71,10 @@ struct MainWindowView: View {
             return true
         }
         .background(WindowConfigurator(model: model))
-        .onAppear { model.start() }
+        .onAppear {
+            model.start()
+            model.setSettingsOpener { systemOpenSettings() }
+        }
         .animation(.easeOut(duration: 0.18), value: model.appNotice?.id)
         .onChange(of: model.searchFocusRequest) { _ in
             searchFocused = true
@@ -80,20 +86,11 @@ struct MainWindowView: View {
             searchFocused = false
             NSApp.keyWindow?.makeFirstResponder(nil)
         }
-        .onChange(of: model.isSettingsPresented) { presented in
-            if !presented {
-                searchFocused = false
-                NSApp.keyWindow?.makeFirstResponder(nil)
-            }
-        }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { _ in
             model.savePlaybackState()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
             model.savePlaybackState()
-        }
-        .sheet(isPresented: $model.isSettingsPresented) {
-            SettingsView(model: model)
         }
     }
 
@@ -135,6 +132,20 @@ struct MainWindowView: View {
                         .font(.system(size: 12))
                         .foregroundColor(palette.text)
                         .focused($searchFocused)
+                    // NSSearchField's clear button. Esc in the field does the
+                    // same; this is the pointing-device path.
+                    if !model.searchText.isEmpty {
+                        Button {
+                            model.searchText = ""
+                        } label: {
+                            Icons.symbol("xmark.circle.fill", size: 11)
+                                .foregroundColor(palette.mutedText(0.45))
+                                .frame(width: 14, height: 14)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help(L("清除搜索"))
+                    }
                 }
                 .padding(.horizontal, 9)
                 .frame(width: 220, height: 26)
@@ -145,7 +156,7 @@ struct MainWindowView: View {
                 )
 
                 Button {
-                    model.isSettingsPresented = true
+                    model.openSettings()
                 } label: {
                     Icons.settings
                         .foregroundColor(palette.text.opacity(0.7))
@@ -334,7 +345,13 @@ private struct WindowConfigurator: NSViewRepresentable {
                 window.hasShadow = true
                 window.minSize = NSSize(width: 900, height: 600)
                 window.setContentSize(NSSize(width: 900, height: 600))
-                window.center()
+                // HIG: keep the user's window layout. The 900x600 above is the
+                // first-launch size; afterwards the last frame wins, and only
+                // a brand-new window (no saved frame) gets centred.
+                window.setFrameAutosaveName("MainWindow")
+                if !window.setFrameUsingName("MainWindow") {
+                    window.center()
+                }
                 coordinator.applyAppearance(to: window)
                 // Keep the search field from grabbing first responder at
                 // launch; space and arrow keys belong to playback until

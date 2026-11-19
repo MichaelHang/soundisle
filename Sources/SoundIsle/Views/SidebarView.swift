@@ -105,7 +105,7 @@ struct SidebarView: View {
             sectionLabel(L("导入文件夹"))
             Spacer(minLength: 4)
             Button {
-                model.importFolders(model.openFolders())
+                model.promptImportFolders()
             } label: {
                 Icons.plus
                     .foregroundColor(theme.mutedText(0.55))
@@ -211,10 +211,10 @@ struct SidebarView: View {
         alert.informativeText = L("只会从曲库移除这个文件夹和其中的歌曲，磁盘上的音频文件不会被删除。")
         alert.addButton(withTitle: L("移除"))
         alert.addButton(withTitle: L("取消"))
-        let response = alert.runModal()
-        NSApp.keyWindow?.makeFirstResponder(nil)
-        guard response == .alertFirstButtonReturn else { return }
-        model.removeFolder(folder)
+        model.presentAlert(alert) { [weak model] response in
+            guard response == .alertFirstButtonReturn else { return }
+            model?.removeFolder(folder)
+        }
     }
 
     /// Renames the directory on disk; the core validates the name and refuses
@@ -230,10 +230,10 @@ struct SidebarView: View {
         field.placeholderString = L("文件夹名称")
         alert.accessoryView = field
         alert.window.initialFirstResponder = field
-        let response = alert.runModal()
-        NSApp.keyWindow?.makeFirstResponder(nil)
-        guard response == .alertFirstButtonReturn else { return }
-        model.renameFolder(folder, to: field.stringValue)
+        model.presentAlert(alert) { [weak model] response in
+            guard response == .alertFirstButtonReturn else { return }
+            model?.renameFolder(folder, to: field.stringValue)
+        }
     }
 
     private func sectionLabel(_ title: String) -> some View {

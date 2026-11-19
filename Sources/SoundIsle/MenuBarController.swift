@@ -119,14 +119,10 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         model.toggleLyricsVisibility()
     }
 
-    /// Settings live in a sheet on the main window, so bring the window back
-    /// before presenting them — the menu bar may be the only surface that is
-    /// visible (mini player mode).
+    /// The settings window is standalone, so it can open over the mini player
+    /// without dragging the main window back on screen.
     @objc private func openSettings() {
-        showMainWindow()
-        DispatchQueue.main.async { [weak self] in
-            self?.model.isSettingsPresented = true
-        }
+        model.openSettings()
     }
 
     @objc private func quit() {

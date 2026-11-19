@@ -82,7 +82,7 @@ private struct LibraryGridEmptyState: View {
                 if searching {
                     model.searchText = ""
                 } else if model.tracks.isEmpty {
-                    model.importFolders(model.openFolders())
+                    model.promptImportFolders()
                 } else {
                     model.select(.allMusic)
                 }
@@ -285,40 +285,60 @@ private struct AlbumDetailView: View {
             if let message = model.ffmpegPrompt.message {
                 TrackListStatusBanner(model: model, message: message)
             }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    header
-                    ForEach(Array(liveTracks.enumerated()), id: \.element.id) { index, track in
-                        TrackRow(
-                            track: track,
-                            index: index,
-                            isCurrent: model.currentTrack?.id == track.id,
-                            isSelected: model.selectedTrackIDs.contains(track.id),
-                            isPlaying: model.isPlaying,
-                            rowStyle: model.library.settings.rowStyle,
-                            artworkURL: model.library.artworkURL(for: track),
-                            showsArtistColumn: group.isCompilation,
-                            showsAlbumColumn: false,
-                            showsAddedColumn: false,
-                            onTap: { model.handleTrackClick(track.id) },
-                            onDoubleClick: {
-                                model.handleTrackDoubleClick(track.id, source: liveTracks)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        header
+                        ForEach(Array(liveTracks.enumerated()), id: \.element.id) { index, track in
+                            TrackRow(
+                                track: track,
+                                index: index,
+                                isCurrent: model.currentTrack?.id == track.id,
+                                isSelected: model.selectedTrackIDs.contains(track.id),
+                                isPlaying: model.isPlaying,
+                                rowStyle: model.library.settings.rowStyle,
+                                artworkURL: model.library.artworkURL(for: track),
+                                showsArtistColumn: group.isCompilation,
+                                showsAlbumColumn: false,
+                                onTap: { model.handleTrackClick(track.id) },
+                                onDoubleClick: {
+                                    model.handleTrackDoubleClick(track.id, source: liveTracks)
+                                }
+                            )
+                            .padding(.horizontal, 18)
+                            .contextMenu {
+                                TrackMenuItems(model: model, trackID: track.id)
                             }
-                        )
-                        .padding(.horizontal, 18)
-                        .contextMenu {
-                            TrackMenuItems(model: model, trackID: track.id)
                         }
                     }
+                    .padding(.bottom, 14)
                 }
-                .padding(.bottom, 14)
+                .onChange(of: model.listScrollTarget) { target in
+                    scrollFollow(target, proxy: proxy)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // ↑↓ in the model navigates this page's rows while they are on screen.
+        .onAppear { model.focusedTrackList = liveTracks }
+        .onDisappear { model.focusedTrackList = nil }
         // Every track of this album was removed (or the file set changed
         // underneath us): nothing left to show, return to the grid.
         .onChange(of: liveTracks.map(\.id)) { ids in
+            model.focusedTrackList = liveTracks
             if ids.isEmpty { onBack() }
+        }
+    }
+
+    /// Keyboard ↑↓ marks its row with `listScrollTarget`; bring it into view.
+    private func scrollFollow(_ target: UUID?, proxy: ScrollViewProxy) {
+        guard let target else { return }
+        model.listScrollTarget = nil
+        guard liveTracks.contains(where: { $0.id == target }) else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                proxy.scrollTo(target, anchor: .center)
+            }
         }
     }
 
@@ -557,43 +577,63 @@ private struct ArtistDetailView: View {
             if let message = model.ffmpegPrompt.message {
                 TrackListStatusBanner(model: model, message: message)
             }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    header
-                    ForEach(sections) { section in
-                        sectionHeader(section)
-                        ForEach(Array(section.tracks.enumerated()), id: \.element.id) { index, track in
-                            TrackRow(
-                                track: track,
-                                index: index,
-                                isCurrent: model.currentTrack?.id == track.id,
-                                isSelected: model.selectedTrackIDs.contains(track.id),
-                                isPlaying: model.isPlaying,
-                                rowStyle: model.library.settings.rowStyle,
-                                artworkURL: model.library.artworkURL(for: track),
-                                showsArtistColumn: false,
-                                showsAlbumColumn: false,
-                                showsAddedColumn: false,
-                                // Double-click queues that album; 播放全部
-                                // queues the artist's whole catalogue.
-                                onTap: { model.handleTrackClick(track.id) },
-                                onDoubleClick: {
-                                    model.handleTrackDoubleClick(track.id, source: section.tracks)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        header
+                        ForEach(sections) { section in
+                            sectionHeader(section)
+                            ForEach(Array(section.tracks.enumerated()), id: \.element.id) { index, track in
+                                TrackRow(
+                                    track: track,
+                                    index: index,
+                                    isCurrent: model.currentTrack?.id == track.id,
+                                    isSelected: model.selectedTrackIDs.contains(track.id),
+                                    isPlaying: model.isPlaying,
+                                    rowStyle: model.library.settings.rowStyle,
+                                    artworkURL: model.library.artworkURL(for: track),
+                                    showsArtistColumn: false,
+                                    showsAlbumColumn: false,
+                                    // Double-click queues that album; 播放全部
+                                    // queues the artist's whole catalogue.
+                                    onTap: { model.handleTrackClick(track.id) },
+                                    onDoubleClick: {
+                                        model.handleTrackDoubleClick(track.id, source: section.tracks)
+                                    }
+                                )
+                                .padding(.horizontal, 18)
+                                .contextMenu {
+                                    TrackMenuItems(model: model, trackID: track.id)
                                 }
-                            )
-                            .padding(.horizontal, 18)
-                            .contextMenu {
-                                TrackMenuItems(model: model, trackID: track.id)
                             }
                         }
                     }
+                    .padding(.bottom, 14)
                 }
-                .padding(.bottom, 14)
+                .onChange(of: model.listScrollTarget) { target in
+                    scrollFollow(target, proxy: proxy)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // ↑↓ in the model navigates this page's rows while they are on screen.
+        .onAppear { model.focusedTrackList = liveTracks }
+        .onDisappear { model.focusedTrackList = nil }
         .onChange(of: liveTracks.map(\.id)) { ids in
+            model.focusedTrackList = liveTracks
             if ids.isEmpty { onBack() }
+        }
+    }
+
+    /// Keyboard ↑↓ marks its row with `listScrollTarget`; bring it into view.
+    private func scrollFollow(_ target: UUID?, proxy: ScrollViewProxy) {
+        guard let target else { return }
+        model.listScrollTarget = nil
+        guard liveTracks.contains(where: { $0.id == target }) else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                proxy.scrollTo(target, anchor: .center)
+            }
         }
     }
 

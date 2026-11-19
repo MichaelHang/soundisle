@@ -132,8 +132,6 @@ struct TrackListView: View {
                 .frame(width: TrackColumns.album, alignment: .leading)
             sortButton(L("时长"), .duration, alignment: .trailing)
                 .frame(width: TrackColumns.duration, alignment: .trailing)
-            sortButton(L("添加时间"), .dateAdded, alignment: .trailing)
-                .frame(width: TrackColumns.added, alignment: .trailing)
         }
         .padding(.horizontal, TrackColumns.rowPadding)
         .padding(.horizontal, 18)
@@ -287,7 +285,7 @@ struct TrackListView: View {
                 if searching {
                     model.searchText = ""
                 } else if model.tracks.isEmpty {
-                    model.importFolders(model.openFolders())
+                    model.promptImportFolders()
                 } else {
                     model.select(.allMusic)
                 }

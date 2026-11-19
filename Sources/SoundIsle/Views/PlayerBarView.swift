@@ -347,35 +347,58 @@ private struct PlayerProgressLine: View {
 
 // MARK: - Corner times
 
-/// Elapsed and total time in the bar's bottom corners. Observing only the
-/// engine's position/duration keeps audio-rate updates inside this strip.
+/// Elapsed time in the left corner; the right corner toggles between the
+/// total and the remaining time, Music-style. Observing only the engine's
+/// position/duration keeps audio-rate updates inside this strip.
 private struct PlayerBarTimes: View {
     @ObservedObject var model: AppModel
     let engine: PlayerEngine
     @Environment(\.theme) private var theme
     @State private var position: TimeInterval = 0
     @State private var duration: TimeInterval = 0
+    @State private var showsRemaining = false
 
     var body: some View {
         HStack(spacing: 0) {
             Text(TimeText.string(engine.duration > 0 ? position : model.displayPosition))
             Spacer(minLength: 0)
-            Text(TimeText.string(engine.duration > 0 ? duration : model.displayDuration))
+            rightTime
         }
         .font(.system(size: 9.5))
         .monospacedDigit()
         .foregroundColor(theme.mutedText(0.55))
         .padding(.horizontal, 18)
         .padding(.bottom, 4)
-        .allowsHitTesting(false)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(L("播放时间"))
         .onReceive(engine.$position) { position = $0 }
         .onReceive(engine.$duration) { duration = $0 }
         .onAppear {
             position = engine.position
             duration = engine.duration
         }
+    }
+
+    private var rightTime: some View {
+        let total = engine.duration > 0 ? duration : model.displayDuration
+        let elapsed = engine.duration > 0 ? position : model.displayPosition
+        return Button {
+            showsRemaining.toggle()
+        } label: {
+            Text(rightText(total: total, elapsed: elapsed))
+                // Fixed width: "-5:42" ↔ "12:08" should not shuffle the bar.
+                .frame(minWidth: 38, alignment: .trailing)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(showsRemaining ? L("显示总时长") : L("显示剩余时间"))
+        .accessibilityLabel(showsRemaining ? L("剩余时间") : L("总时长"))
+        .accessibilityHint(L("点按切换显示"))
+    }
+
+    private func rightText(total: TimeInterval, elapsed: TimeInterval) -> String {
+        if showsRemaining, total > 0 {
+            return "-" + TimeText.string(max(total - elapsed, 0))
+        }
+        return TimeText.string(total)
     }
 }
 
