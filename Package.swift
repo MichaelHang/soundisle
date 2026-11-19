@@ -12,5 +12,6 @@ let package = Package(
         .target(name: "SoundIsleCore"),
         .executableTarget(name: "SoundIsle", dependencies: ["SoundIsleCore"]),
         .testTarget(name: "SoundIsleCoreTests", dependencies: ["SoundIsleCore"]),
+        .testTarget(name: "SoundIsleAppTests", dependencies: ["SoundIsle", "SoundIsleCore"]),
     ]
 )

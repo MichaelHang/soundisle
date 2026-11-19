@@ -48,6 +48,20 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(trackItem)
         menu.addItem(.separator())
 
+        switch UpdatePresentation.menuBar(for: model.updates.state) {
+        case .available(let version):
+            addItem(Lf("发现新版本 %@…", version), action: #selector(openSettings))
+            menu.addItem(.separator())
+        case .downloading:
+            addItem(L("取消下载…"), action: #selector(cancelUpdateDownload))
+            menu.addItem(.separator())
+        case .ready:
+            addItem(L("重启以更新…"), action: #selector(restartToUpdate))
+            menu.addItem(.separator())
+        case nil:
+            break
+        }
+
         addItem(model.isPlaying ? L("暂停（空格）") : L("播放（空格）"), action: #selector(togglePlayPause))
         addItem(L("上一首（⌘←）"), action: #selector(previous))
         addItem(L("下一首（⌘→）"), action: #selector(next))
@@ -62,15 +76,14 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         }
         menu.addItem(.separator())
 
-        addItem(model.isLyricsVisible ? L("隐藏歌词") : L("显示歌词"), action: #selector(toggleLyrics))
-        addItem(model.isLyricsLocked ? L("解锁歌词") : L("锁定歌词"), action: #selector(toggleLyricsLock))
-        let importItem = addItem(L("更换歌词…"), action: #selector(importLyrics))
-        importItem.isEnabled = model.currentTrack != nil
-        let restoreItem = addItem(L("恢复自动匹配"), action: #selector(restoreAutomaticLyrics))
-        restoreItem.isEnabled = model.hasLyricsOverride
-        if model.canRetryLyrics {
-            addItem(L("重试匹配"), action: #selector(retryLyrics))
-        }
+        let lyricsItem = addItem(
+            model.isLyricsVisible ? L("隐藏桌面歌词") : L("显示桌面歌词"),
+            action: #selector(toggleLyrics)
+        )
+        lyricsItem.state = model.isLyricsVisible ? .on : .off
+        menu.addItem(.separator())
+
+        addItem(L("设置…"), action: #selector(openSettings), keyEquivalent: ",")
         menu.addItem(.separator())
 
         addItem(L("退出声屿"), action: #selector(quit), keyEquivalent: "q")
@@ -120,20 +133,22 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         model.toggleLyricsVisibility()
     }
 
-    @objc private func toggleLyricsLock() {
-        model.toggleLyricsLock()
+    /// Settings live in a sheet on the main window, so bring the window back
+    /// before presenting them — the menu bar may be the only surface that is
+    /// visible (mini player mode).
+    @objc private func cancelUpdateDownload() {
+        model.updates.cancelDownload()
     }
 
-    @objc private func importLyrics() {
-        model.promptImportLyrics()
+    @objc private func restartToUpdate() {
+        model.updates.restartToApply()
     }
 
-    @objc private func restoreAutomaticLyrics() {
-        model.restoreAutomaticLyrics()
-    }
-
-    @objc private func retryLyrics() {
-        model.retryLyrics()
+    @objc private func openSettings() {
+        showMainWindow()
+        DispatchQueue.main.async { [weak self] in
+            self?.model.isSettingsPresented = true
+        }
     }
 
     @objc private func quit() {

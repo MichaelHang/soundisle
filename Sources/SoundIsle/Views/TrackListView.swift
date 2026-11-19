@@ -7,23 +7,26 @@ import UniformTypeIdentifiers
 struct TrackListView: View {
     @ObservedObject var model: AppModel
     @Environment(\.theme) private var theme
-    @State private var contextMenuTrackID: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
             header
             columnHeader
 
-            if let message = model.statusMessage {
-                TrackListStatusBanner(model: model, message: message)
+            // The list keeps one banner: the FFmpeg prompt, which is a
+            // persistent, multi-action state. Every other message is the
+            // window's notice, wherever the user happens to be.
+            if let message = model.ffmpegPrompt.message {
+                ffmpegBanner(message)
             }
 
             if model.visibleTracks.isEmpty {
                 emptyState
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 2) {
-                        ForEach(Array(model.visibleTracks.enumerated()), id: \.element.id) { index, track in
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 2) {
+                            ForEach(Array(model.visibleTracks.enumerated()), id: \.element.id) { index, track in
                             TrackRow(
                                 track: track,
                                 index: index,
@@ -32,8 +35,7 @@ struct TrackListView: View {
                                 isPlaying: model.isPlaying,
                                 rowStyle: model.library.settings.rowStyle,
                                 artworkURL: model.library.artworkURL(for: track),
-                                onTap: { model.handleTrackClick(track.id) },
-                                onContextMenu: { contextMenuTrackID = track.id }
+                                onTap: { model.handleTrackClick(track.id) }
                             )
                             .onDrag {
                                 NSItemProvider(object: track.id.uuidString as NSString)
@@ -41,33 +43,38 @@ struct TrackListView: View {
                             .onDrop(of: [UTType.utf8PlainText], isTargeted: nil) { providers in
                                 handleReorder(providers, onto: track)
                             }
-                            .popover(
-                                isPresented: Binding(
-                                    get: { contextMenuTrackID == track.id },
-                                    set: { presented in
-                                        if !presented, contextMenuTrackID == track.id {
-                                            contextMenuTrackID = nil
-                                        }
-                                    }
-                                ),
-                                arrowEdge: .bottom
-                            ) {
-                                TrackContextMenu(
-                                    model: model,
-                                    trackID: track.id
-                                ) {
-                                    contextMenuTrackID = nil
-                                }
+                            .themedContextMenu {
+                                TrackContextMenu(model: model, trackID: track.id)
                             }
+                            .id(track.id)
                         }
+                        }
+                        .padding(.horizontal, 18)
+                        .padding(.top, 6)
+                        .padding(.bottom, 14)
                     }
-                    .padding(.horizontal, 18)
-                    .padding(.top, 6)
-                    .padding(.bottom, 14)
+                    .onAppear { scrollToTargetIfNeeded(proxy) }
+                    .onChange(of: model.listScrollTarget) { _ in
+                        scrollToTargetIfNeeded(proxy)
+                    }
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// The lyrics page is a detail view; returning to the list should show the
+    /// playing track instead of wherever the list was scrolled before.
+    private func scrollToTargetIfNeeded(_ proxy: ScrollViewProxy) {
+        guard let target = model.listScrollTarget else { return }
+        model.listScrollTarget = nil
+        guard model.visibleTracks.contains(where: { $0.id == target }) else { return }
+        // Let the freshly-shown list lay out before asking it to scroll.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                proxy.scrollTo(target, anchor: .center)
+            }
+        }
     }
 
     private var header: some View {
@@ -202,6 +209,61 @@ struct TrackListView: View {
             }
         }
         return true
+    }
+
+    /// The one banner the list still owns: ffmpeg is missing and a format
+    /// needs it. Persistent, and carries the three ways to fix it.
+    private func ffmpegBanner(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 8) {
+                Icons.warning
+                    .foregroundColor(theme.warning)
+                Text(message)
+                    .font(.system(size: 11.5))
+                    .foregroundColor(theme.text.opacity(0.82))
+                    .lineLimit(2)
+                Spacer(minLength: 6)
+                Button {
+                    model.dismissStatus()
+                } label: {
+                    Icons.close
+                        .foregroundColor(theme.mutedText(0.5))
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(L("关闭"))
+            }
+            HStack(spacing: 12) {
+                Button(L("复制 brew install ffmpeg")) {
+                    model.copyFFmpegInstallCommand()
+                }
+                Button(L("重新检测")) {
+                    model.redetectFFmpeg()
+                }
+                Button(L("选择 FFmpeg…")) {
+                    model.chooseFFmpegPath()
+                }
+                Text(L("原生格式仍可正常播放"))
+                    .foregroundColor(theme.mutedText(0.45))
+                Spacer(minLength: 0)
+            }
+            .font(.system(size: 10.5))
+            .buttonStyle(.plain)
+            .foregroundColor(theme.accentLight)
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 7)
+        .background(
+            theme.warning.opacity(0.12),
+            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(theme.warning.opacity(0.3), lineWidth: 0.5)
+        )
+        .padding(.horizontal, 18)
+        .padding(.bottom, 6)
     }
 
     private var emptyState: some View {

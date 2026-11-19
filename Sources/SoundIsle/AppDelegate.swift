@@ -22,6 +22,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         miniPlayer.onExpand = { [weak self] in self?.showMainWindow() }
         self.miniPlayer = miniPlayer
         model.miniPlayer = miniPlayer
+        model.onShowMainWindow = { [weak self] in self?.showMainWindow() }
+        model.onHideMainWindow = { [weak self] in self?.hideMainWindow() }
         // Apply a persisted `showMainSpectrum` even when the mini starts hidden.
         model.refreshSpectrumConsumers()
 
@@ -37,6 +39,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             showMiniPlayer: { [weak self] in self?.showMiniPlayer() }
         )
         mediaKeys = MediaKeyController(model: model)
+
+        // Hiding on close is reported from `windowShouldClose`, where the
+        // window is actually ordered out.
+        for name in [
+            NSWindow.didMiniaturizeNotification,
+            NSWindow.didDeminiaturizeNotification
+        ] {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(mainWindowVisibilityChanged(_:)),
+                name: name,
+                object: nil
+            )
+        }
 
         NotificationCenter.default.addObserver(
             self,
@@ -79,6 +95,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         model.savePlaybackState()
+        // A downloaded update is swapped in now, while the bundle is closed,
+        // so the next launch is already the new build.
+        model.updates.applyOnQuit()
     }
 
     /// Main window and mini player are mutually exclusive: whichever is
@@ -89,8 +108,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         if let window = mainWindow ?? NSApp.windows.first(where: { isMainWindow($0) }) {
             mainWindow = window
-            window.deminiaturize(nil)
-            window.makeKeyAndOrderFront(nil)
+            // Restoring from the Dock runs its own animation; ordering the
+            // window front on top of that showed it mid-transition for a
+            // frame (a flash), so only one of the two paths runs.
+            if window.isMiniaturized {
+                window.deminiaturize(nil)
+                window.makeKey()
+            } else {
+                window.makeKeyAndOrderFront(nil)
+            }
+            model.setMainWindowVisible(true)
             model.clearSearchFocus()
             // SwiftUI can restore the search field as first responder when a
             // window becomes key; clear it after the window settles.
@@ -113,12 +140,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// The main window is "on screen" when it is ordered in and not in the
+    /// Dock. The desktop lyrics use this to mark their main-window button.
+    @objc private func mainWindowVisibilityChanged(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow, isMainWindow(window) else { return }
+        model.setMainWindowVisible(window.isVisible && !window.isMiniaturized)
+    }
+
+    /// The desktop lyrics' main-window button, second half: hide it the way
+    /// ⌘W does, so playback and the lyrics carry on untouched.
+    func hideMainWindow() {
+        let window = mainWindow ?? NSApp.windows.first(where: { isMainWindow($0) })
+        window?.makeFirstResponder(nil)
+        window?.orderOut(nil)
+        model.setMainWindowVisible(false)
+    }
+
     /// Mini mode: order the main window out (without closing it) and float the
     /// mini player. Returning to the main window goes through `showMainWindow`.
     func showMiniPlayer() {
         model.clearSearchFocus()
         NSApp.windows.filter { isMainWindow($0) }.forEach { $0.makeFirstResponder(nil) }
         model.showMiniPlayer()
+        model.setMainWindowVisible(false)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
             self?.trimMainMenu()
         }
@@ -137,6 +181,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func windowDidBecomeMain(_ notification: Notification) {
         if let window = notification.object as? NSWindow, isMainWindow(window) {
             mainWindow = window
+            // SwiftUI can re-show the ordered-out main window on its own
+            // (Dock click, reopen event). The mini and main are mutually
+            // exclusive, so restore that invariant here too.
+            if miniPlayer?.isVisible == true {
+                miniPlayer?.hide()
+            }
             // Returning from mini mode can restore the search field as first
             // responder; explicitly resign it so playback shortcuts keep working.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in

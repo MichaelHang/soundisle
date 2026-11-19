@@ -7,16 +7,14 @@ import SwiftUI
 struct LyricsOverlayView: View {
     @ObservedObject var model: AppModel
     @Environment(\.colorScheme) private var colorScheme
-    let onResize: (CGFloat) -> Void
 
     @State private var isHovering = false
     @State private var opacity: Double
     @State private var outline: Bool
     @State private var lineMode: String
 
-    init(model: AppModel, onResize: @escaping (CGFloat) -> Void) {
+    init(model: AppModel) {
         self.model = model
-        self.onResize = onResize
         let settings = model.library.settings
         _opacity = State(initialValue: settings.lyricsOpacity)
         _outline = State(initialValue: settings.lyricsOutline)
@@ -39,7 +37,16 @@ struct LyricsOverlayView: View {
 
     /// The desktop overlay is text-only until the user hovers it. Locking
     /// makes the panel click-through, so the glass must never appear then.
+    /// Unlocked: hovering reveals the whole bar. Locked: the pill (a separate
+    /// click-through panel) reports its visibility, so the lyrics still lift
+    /// and scale to make room for it.
     private var showsHoverChrome: Bool {
+        model.isLyricsLocked ? model.isLyricsLockedBarVisible : isHovering
+    }
+
+    /// The glass is only for the unlocked bar. While locked the overlay must
+    /// stay fully transparent, even when the pill is showing.
+    private var showsGlass: Bool {
         isHovering && !model.isLyricsLocked
     }
 
@@ -52,6 +59,8 @@ struct LyricsOverlayView: View {
         }
         .clipShape(shape)
         .overlay(shape.strokeBorder(palette.hairline, lineWidth: 1))
+        .compositingGroup()
+        .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
     }
 
     var body: some View {
@@ -59,7 +68,7 @@ struct LyricsOverlayView: View {
             let fontSize = LyricsFont.size(forWidth: proxy.size.width)
             ZStack {
                 hoverBackground
-                    .opacity(showsHoverChrome ? 1 : 0)
+                    .opacity(showsGlass ? 1 : 0)
                     .allowsHitTesting(false)
                 WindowDragArea()
                 content(fontSize: fontSize)
@@ -69,6 +78,8 @@ struct LyricsOverlayView: View {
                     // sit as a footer against the bottom of the glass instead
                     // of covering the second line.
                     .padding(.bottom, showsHoverChrome ? 46 : 0)
+                    .scaleEffect(showsHoverChrome ? 0.88 : 1, anchor: .center)
+                    .animation(.easeOut(duration: 0.18), value: showsHoverChrome)
 
                 if !model.isLyricsLocked {
                     controls
@@ -81,6 +92,7 @@ struct LyricsOverlayView: View {
             .onHover { isHovering = $0 }
             .animation(.easeOut(duration: 0.18), value: showsHoverChrome)
         }
+        .animation(.easeOut(duration: 0.18), value: showsGlass)
         .soundIsleTheme(palette)
         .onChange(of: model.library.settings.lyricsOpacity) { opacity = $0 }
         .onChange(of: model.library.settings.lyricsOutline) { outline = $0 }
@@ -117,6 +129,11 @@ struct LyricsOverlayView: View {
                 .minimumScaleFactor(0.5)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .allowsHitTesting(false)
+                // A new identity per line plus no inherited animation stops
+                // SwiftUI from cross-fading the previous line into the new
+                // one (which can look like two overlapping lines).
+                .id(model.currentLyricLineIndex)
+                .transaction { $0.animation = nil }
             } else {
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: fontSize * 0.25) {
@@ -163,24 +180,27 @@ struct LyricsOverlayView: View {
         }
     }
 
-    /// Right-click menu for the lyrics window. The same entries also live in
-    /// the app menu and the menu bar.
+    /// Right-click menu for the lyrics window. Same entries and order as the
+    /// lyrics page — 更换 / 重试 / 恢复 — but a system menu: this panel is its
+    /// own small floating window, so the themed in-window panel would be
+    /// clipped by it (and the panel is click-through while locked).
     @ViewBuilder
     private var lyricsMenu: some View {
-        Button(L("更换歌词…")) {
+        Button(model.lyrics == nil ? L("导入歌词…") : L("更换歌词…")) {
             model.promptImportLyrics()
         }
         .disabled(model.currentTrack == nil)
-
-        Button(L("恢复自动匹配")) {
-            model.restoreAutomaticLyrics()
-        }
-        .disabled(!model.hasLyricsOverride)
 
         Button(L("重试匹配")) {
             model.retryLyrics()
         }
         .disabled(model.currentTrack == nil || model.isResolvingLyrics)
+
+        if model.hasLyricsOverride {
+            Button(L("恢复自动匹配")) {
+                model.restoreAutomaticLyrics()
+            }
+        }
     }
 
     /// The fill follows the app theme's resolved accent. The optional
@@ -218,11 +238,13 @@ struct LyricsOverlayView: View {
                 base.foregroundColor(lyricFill.opacity(emphasis))
             }
             .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
+            .compositingGroup()
         } else {
             // Default: no ring. Accent text with a soft, understated shadow.
             base
                 .foregroundColor(lyricFill.opacity(emphasis))
                 .shadow(color: .black.opacity(0.26), radius: 2.5, y: 1)
+                .compositingGroup()
         }
     }
 
@@ -241,12 +263,9 @@ struct LyricsOverlayView: View {
                 controlButton("lock.open", help: L("锁定歌词")) {
                     model.setLyricsLocked(true)
                 }
-                controlButton("textformat.size.smaller", help: L("缩小")) {
-                    onResize(-40)
-                }
-                controlButton("textformat.size.larger", help: L("放大")) {
-                    onResize(40)
-                }
+
+                transportControls
+
                 Slider(value: $opacity, in: 0.05...0.9, onEditingChanged: { editing in
                     if !editing { model.setLyricsOpacity(opacity) }
                 })
@@ -261,14 +280,21 @@ struct LyricsOverlayView: View {
                     outline.toggle()
                     model.setLyricsOutline(outline)
                 }
-                // Icon language: compress = enter mini, expand = back to the
-                // main window (on the mini panel), slashed = close the mini
-                // without bringing the main window back.
+                // Icon language: compress = enter the mini player, expand =
+                // the main window — the same pair the mini panel and the
+                // player bar use. Here it toggles: the filled state says the
+                // window is up, pressing it again hides it (⌘W's behaviour,
+                // playback keeps going) instead of minimising to the Dock.
                 controlButton(
-                    model.isMiniPlayerVisible ? "rectangle.slash" : "rectangle.compress.vertical",
-                    help: model.isMiniPlayerVisible ? L("关闭迷你窗口") : L("打开迷你窗口")
+                    "rectangle.expand.vertical",
+                    help: model.isMainWindowOnScreen ? L("隐藏主窗口") : L("展开主窗口"),
+                    isOn: model.isMainWindowOnScreen
                 ) {
-                    model.toggleMiniPlayer()
+                    if model.isMainWindowOnScreen {
+                        model.hideMainWindow()
+                    } else {
+                        model.showMainWindow()
+                    }
                 }
                 controlButton("xmark", help: L("关闭歌词")) {
                     model.setLyricsVisible(false)
@@ -283,6 +309,29 @@ struct LyricsOverlayView: View {
         .opacity(showsHoverChrome ? 1 : 0)
         .allowsHitTesting(showsHoverChrome)
         .animation(.easeOut(duration: 0.15), value: showsHoverChrome)
+    }
+
+    /// Previous / play-pause / next, identical in the unlocked bar and the
+    /// locked pill so playback never needs another window.
+    @ViewBuilder
+    private var transportControls: some View {
+        controlButton("backward.end", help: L("上一首")) {
+            model.previous()
+        }
+        Button {
+            model.togglePlayPause()
+        } label: {
+            Icons.symbol(model.isPlaying ? "pause.fill" : "play.fill", size: 11)
+                .foregroundColor(palette.onAccent)
+                .frame(width: 22, height: 22)
+                .background(palette.accent, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .help(model.isPlaying ? L("暂停") : L("播放"))
+
+        controlButton("forward.end", help: L("下一首")) {
+            model.next()
+        }
     }
 
     private var resizeGrip: some View {
@@ -302,13 +351,17 @@ struct LyricsOverlayView: View {
     private func controlButton(
         _ symbol: String,
         help: String,
+        isOn: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Icons.symbol(symbol, size: 11)
-                .foregroundColor(palette.text.opacity(0.85))
+                .foregroundColor(isOn ? palette.accent : palette.text.opacity(0.85))
                 .frame(width: 22, height: 22)
-                .background(palette.raisedFill, in: Circle())
+                .background(
+                    isOn ? palette.accent.opacity(0.24) : palette.raisedFill,
+                    in: Circle()
+                )
         }
         .buttonStyle(.plain)
         .help(help)

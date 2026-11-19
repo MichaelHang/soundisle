@@ -178,7 +178,7 @@ private struct AlbumCardGrid: View {
         VStack(spacing: 0) {
             LibraryGridHeader(model: model, title: L("专辑"), meta: meta)
 
-            if let message = model.statusMessage {
+            if let message = model.ffmpegPrompt.message {
                 TrackListStatusBanner(model: model, message: message)
             }
 
@@ -270,12 +270,10 @@ private struct AlbumDetailView: View {
     let group: TrackGroup
     let onBack: () -> Void
 
-    @State private var contextMenuTrackID: UUID?
-
     var body: some View {
         VStack(spacing: 0) {
             backButton
-            if let message = model.statusMessage {
+            if let message = model.ffmpegPrompt.message {
                 TrackListStatusBanner(model: model, message: message)
             }
             ScrollView {
@@ -293,24 +291,11 @@ private struct AlbumDetailView: View {
                             showsArtistColumn: group.isCompilation,
                             showsAlbumColumn: false,
                             showsAddedColumn: false,
-                            onTap: { model.handleTrackClick(track.id, source: group.tracks) },
-                            onContextMenu: { contextMenuTrackID = track.id }
+                            onTap: { model.handleTrackClick(track.id, source: group.tracks) }
                         )
                         .padding(.horizontal, 18)
-                        .popover(
-                            isPresented: Binding(
-                                get: { contextMenuTrackID == track.id },
-                                set: { presented in
-                                    if !presented, contextMenuTrackID == track.id {
-                                        contextMenuTrackID = nil
-                                    }
-                                }
-                            ),
-                            arrowEdge: .bottom
-                        ) {
-                            TrackContextMenu(model: model, trackID: track.id) {
-                                contextMenuTrackID = nil
-                            }
+                        .themedContextMenu {
+                            TrackContextMenu(model: model, trackID: track.id)
                         }
                     }
                 }
@@ -415,7 +400,7 @@ private struct ArtistCardGrid: View {
         VStack(spacing: 0) {
             LibraryGridHeader(model: model, title: L("歌手"), meta: meta)
 
-            if let message = model.statusMessage {
+            if let message = model.ffmpegPrompt.message {
                 TrackListStatusBanner(model: model, message: message)
             }
 
@@ -536,8 +521,6 @@ private struct ArtistDetailView: View {
     let group: TrackGroup
     let onBack: () -> Void
 
-    @State private var contextMenuTrackID: UUID?
-
     private struct AlbumSection: Identifiable {
         let name: String
         let tracks: [Track]
@@ -547,7 +530,7 @@ private struct ArtistDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             backButton
-            if let message = model.statusMessage {
+            if let message = model.ffmpegPrompt.message {
                 TrackListStatusBanner(model: model, message: message)
             }
             ScrollView {
@@ -569,24 +552,11 @@ private struct ArtistDetailView: View {
                                 showsAddedColumn: false,
                                 // Tapping a track queues that album; 播放全部
                                 // queues the artist's whole catalogue.
-                                onTap: { model.handleTrackClick(track.id, source: section.tracks) },
-                                onContextMenu: { contextMenuTrackID = track.id }
+                                onTap: { model.handleTrackClick(track.id, source: section.tracks) }
                             )
                             .padding(.horizontal, 18)
-                            .popover(
-                                isPresented: Binding(
-                                    get: { contextMenuTrackID == track.id },
-                                    set: { presented in
-                                        if !presented, contextMenuTrackID == track.id {
-                                            contextMenuTrackID = nil
-                                        }
-                                    }
-                                ),
-                                arrowEdge: .bottom
-                            ) {
-                                TrackContextMenu(model: model, trackID: track.id) {
-                                    contextMenuTrackID = nil
-                                }
+                            .themedContextMenu {
+                                TrackContextMenu(model: model, trackID: track.id)
                             }
                         }
                     }

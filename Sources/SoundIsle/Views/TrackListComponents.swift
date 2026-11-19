@@ -38,7 +38,6 @@ struct TrackRow: View {
     var showsAlbumColumn: Bool = true
     var showsAddedColumn: Bool = true
     let onTap: () -> Void
-    let onContextMenu: () -> Void
 
     @State private var isHovering = false
 
@@ -114,11 +113,6 @@ struct TrackRow: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
         .onHover { isHovering = $0 }
-        // Overlay rather than background: the catcher claims only right-click
-        // events, so left-click play, drag and multi-select keep working.
-        .overlay {
-            RightClickCatcher(onRightClick: onContextMenu)
-        }
     }
 
     private var title: String {
@@ -183,25 +177,23 @@ struct TrackListStatusBanner: View {
                 .buttonStyle(.plain)
                 .help(L("关闭"))
             }
-            if model.showsFFmpegInstallPrompt {
-                HStack(spacing: 12) {
-                    Button(L("复制 brew install ffmpeg")) {
-                        model.copyFFmpegInstallCommand()
-                    }
-                    Button(L("重新检测")) {
-                        model.redetectFFmpeg()
-                    }
-                    Button(L("选择 FFmpeg…")) {
-                        model.chooseFFmpegPath()
-                    }
-                    Text(L("原生格式仍可正常播放"))
-                        .foregroundColor(theme.mutedText(0.45))
-                    Spacer(minLength: 0)
+            HStack(spacing: 12) {
+                Button(L("复制 brew install ffmpeg")) {
+                    model.copyFFmpegInstallCommand()
                 }
-                .font(.system(size: 10.5))
-                .buttonStyle(.plain)
-                .foregroundColor(theme.accentLight)
+                Button(L("重新检测")) {
+                    model.redetectFFmpeg()
+                }
+                Button(L("选择 FFmpeg…")) {
+                    model.chooseFFmpegPath()
+                }
+                Text(L("原生格式仍可正常播放"))
+                    .foregroundColor(theme.mutedText(0.45))
+                Spacer(minLength: 0)
             }
+            .font(.system(size: 10.5))
+            .buttonStyle(.plain)
+            .foregroundColor(theme.accentLight)
         }
         .padding(.horizontal, 11)
         .padding(.vertical, 7)
@@ -218,98 +210,41 @@ struct TrackListStatusBanner: View {
     }
 }
 
-// MARK: - Right-click catcher
-
-/// Claims right-clicks without stealing anything else. AppKit asks `hitTest`
-/// while dispatching an event, so returning nil for every non-right-mouse
-/// event leaves SwiftUI's tap and drag gestures untouched.
-struct RightClickCatcher: NSViewRepresentable {
-    let onRightClick: () -> Void
-
-    func makeNSView(context: Context) -> NSView {
-        let view = CatcherView()
-        view.onRightClick = onRightClick
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        (nsView as? CatcherView)?.onRightClick = onRightClick
-    }
-
-    private final class CatcherView: NSView {
-        var onRightClick: (() -> Void)?
-
-        override func hitTest(_ point: NSPoint) -> NSView? {
-            guard let event = NSApp.currentEvent else { return nil }
-            switch event.type {
-            case .rightMouseDown, .rightMouseUp, .rightMouseDragged:
-                return super.hitTest(point)
-            default:
-                return nil
-            }
-        }
-
-        override func rightMouseDown(with event: NSEvent) {
-            onRightClick?()
-        }
-    }
-}
-
 // MARK: - Track context menu
 
-/// Themed replacement for the system context menu, shared by both list views.
-/// The popover owns dismissal (click-away and Esc); `onClose` also lets each
-/// action close it before opening a sheet or mutating the queue.
+/// The songs' right-click menu, drawn by the window's `ThemedMenuHost` through
+/// `.themedContextMenu`. This supplies only the rows — the panel, click-away and
+/// Esc all live there, shared with the sidebar and lyrics menus.
 struct TrackContextMenu: View {
     @ObservedObject var model: AppModel
     let trackID: UUID
-    let onClose: () -> Void
 
     @Environment(\.theme) private var theme
-    @State private var hoveredID: String?
 
     private var targetIDs: [UUID] { model.contextTrackIDs(for: trackID) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            action("trash", L("从音乐库移除")) {
-                model.removeTracksFromLibrary(targetIDs)
-            }
-
-            separator
-
-            if case .playlist(let playlistID) = model.selection {
-                action("minus.circle", L("从播放列表移除")) {
-                    for id in targetIDs {
-                        model.removeFromPlaylist(playlistID, trackID: id)
-                    }
-                }
-                separator
-            }
-
-            playlistSection
+        ThemedMenuAction(symbol: "trash", title: L("从音乐库移除")) {
+            model.removeTracksFromLibrary(targetIDs)
         }
-        .padding(5)
-        .frame(width: 240)
-        .glassPanel(cornerRadius: 10)
-        .shadow(
-            color: .black.opacity(theme.isDark ? 0.5 : 0.18),
-            radius: 16,
-            y: 6
-        )
-        .onExitCommand(perform: onClose)
+
+        ThemedMenuSeparator()
+
+        if case .playlist(let playlistID) = model.selection {
+            ThemedMenuAction(symbol: "minus.circle", title: L("从播放列表移除")) {
+                for id in targetIDs {
+                    model.removeFromPlaylist(playlistID, trackID: id)
+                }
+            }
+            ThemedMenuSeparator()
+        }
+
+        playlistSection
     }
 
     private var playlistSection: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(L("添加到播放列表"))
-                .font(.system(size: 10, weight: .semibold))
-                .tracking(0.6)
-                .foregroundColor(theme.mutedText(0.42))
-                .padding(.horizontal, 8)
-                .padding(.top, 3)
-                .padding(.bottom, 3)
-
+        Group {
+            ThemedMenuHeader(title: L("添加到播放列表"))
             if model.playlists.playlists.isEmpty {
                 Text(L("暂无播放列表"))
                     .font(.system(size: 11))
@@ -320,58 +255,13 @@ struct TrackContextMenu: View {
                 ScrollView(showsIndicators: true) {
                     VStack(spacing: 1) {
                         ForEach(model.playlists.playlists) { playlist in
-                            action("music.note.list", playlist.name) {
+                            ThemedMenuAction(symbol: "music.note.list", title: playlist.name) {
                                 model.addToPlaylist(playlist.id, trackIDs: targetIDs)
                             }
                         }
                     }
                 }
                 .frame(maxHeight: min(CGFloat(model.playlists.playlists.count) * 28, 168))
-            }
-        }
-    }
-
-    private var separator: some View {
-        Rectangle()
-            .fill(theme.hairline)
-            .frame(height: 1)
-            .padding(.horizontal, 4)
-            .padding(.vertical, 3)
-    }
-
-    private func action(
-        _ symbol: String,
-        _ title: String,
-        run: @escaping () -> Void
-    ) -> some View {
-        let key = "\(symbol)-\(title)"
-        return Button {
-            onClose()
-            run()
-        } label: {
-            HStack(spacing: 8) {
-                Icons.symbol(symbol, size: 11)
-                    .frame(width: 16)
-                Text(title)
-                    .font(.system(size: 12))
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            .foregroundColor(theme.text.opacity(0.9))
-            .padding(.horizontal, 8)
-            .frame(height: 27)
-            .background(
-                hoveredID == key ? theme.accent.opacity(0.16) : Color.clear,
-                in: RoundedRectangle(cornerRadius: 5, style: .continuous)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            if hovering {
-                hoveredID = key
-            } else if hoveredID == key {
-                hoveredID = nil
             }
         }
     }

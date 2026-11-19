@@ -11,6 +11,7 @@ struct MainWindowView: View {
 
     @FocusState private var searchFocused: Bool
     @State private var isDropTargeted = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var palette: ThemePalette {
         let settings = model.library.settings
@@ -23,33 +24,46 @@ struct MainWindowView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            topBar
-            HStack(spacing: 0) {
-                SidebarView(model: model)
-                    .frame(width: 190)
-                ZStack {
-                    if model.showsLyricsPage {
-                        NowPlayingLyricsView(model: model)
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .bottom).combined(with: .opacity),
-                                removal: .opacity
-                            ))
-                    } else if model.selection == .artists {
-                        ArtistGridView(model: model)
-                    } else if model.selection == .albums {
-                        AlbumGridView(model: model)
-                    } else {
-                        TrackListView(model: model)
+        GeometryReader { geometry in
+            let contentHeight = max(0, geometry.size.height - 46 - 84)
+            VStack(spacing: 0) {
+                topBar
+                HStack(alignment: .top, spacing: 0) {
+                    SidebarView(model: model)
+                        .frame(width: 190)
+                    ZStack {
+                        if model.showsLyricsPage {
+                            NowPlayingLyricsView(model: model)
+                                .transition(.asymmetric(
+                                    insertion: .move(edge: .bottom).combined(with: .opacity),
+                                    removal: .opacity
+                                ))
+                        } else if model.selection == .artists {
+                            ArtistGridView(model: model)
+                        } else if model.selection == .albums {
+                            AlbumGridView(model: model)
+                        } else {
+                            TrackListView(model: model)
+                                .transition(.opacity)
+                        }
                     }
+                    // A flexible frame alone is not enough: the lyrics page
+                    // reports a smaller ideal height, and the HStack would
+                    // centre it with a large top gap. Give it the row height.
+                    .frame(maxWidth: .infinity)
+                    .frame(height: contentHeight)
+                    .clipped()
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
+                .frame(height: contentHeight)
+                PlayerBarView(model: model)
+                    .frame(height: 84)
             }
-            PlayerBarView(model: model)
-                .frame(height: 84)
         }
         .background(AppBackground())
+        // Inside the theme so the menu panel is themed, above everything so
+        // the list cannot clip it.
+        .overlay(ThemedMenuHost())
+        .overlay(alignment: .bottom) { noticeOverlay }
         .soundIsleTheme(palette)
         .overlay(dropOverlay)
         .onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted) { providers in
@@ -58,6 +72,7 @@ struct MainWindowView: View {
         }
         .background(WindowConfigurator(model: model))
         .onAppear { model.start() }
+        .animation(.easeOut(duration: 0.18), value: model.appNotice?.id)
         .onChange(of: model.searchFocusRequest) { _ in
             searchFocused = true
         }
@@ -82,6 +97,23 @@ struct MainWindowView: View {
         }
         .sheet(isPresented: $model.isSettingsPresented) {
             SettingsView(model: model)
+        }
+    }
+
+    /// Update results and other app-level messages. Rendered at the window
+    /// root so it shows on the lyrics page too — the list's own banner is
+    /// page-scoped and an update check is not.
+    @ViewBuilder
+    private var noticeOverlay: some View {
+        if let notice = model.appNotice {
+            AppNoticeView(notice: notice) { model.dismissNotice() }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 84 + 12)
+                .transition(
+                    reduceMotion
+                        ? .opacity
+                        : .move(edge: .bottom).combined(with: .opacity)
+                )
         }
     }
 
@@ -114,6 +146,8 @@ struct MainWindowView: View {
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
                         .strokeBorder(palette.hairline, lineWidth: 0.5)
                 )
+
+                UpdatePillView(model: model)
 
                 Button {
                     model.isSettingsPresented = true
@@ -253,6 +287,7 @@ private struct WindowConfigurator: NSViewRepresentable {
         func windowShouldClose(_ sender: NSWindow) -> Bool {
             guard model.library.settings.keepRunningOnClose else { return true }
             sender.orderOut(nil)
+            model.setMainWindowVisible(false)
             return false
         }
 

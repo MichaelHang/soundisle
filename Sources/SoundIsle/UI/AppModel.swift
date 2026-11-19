@@ -30,6 +30,13 @@ final class AppModel: ObservableObject {
     let playlists: PlaylistStore
     /// Serial background transcoder for formats AVFoundation cannot read.
     let transcode: TranscodeQueue
+    /// Update checks and, in automatic mode, downloading the new build.
+    let updates: UpdateController
+    private var updateStateObserver: AnyCancellable?
+    /// Window-level notice: update results and anything else the app, rather
+    /// than the list, needs to say. Shown on every page.
+    @Published var appNotice: AppNotice?
+    private var appNoticeTask: Task<Void, Never>?
 
     @Published private(set) var queue = PlaybackQueue(trackIDs: [])
     @Published private(set) var currentTrack: Track?
@@ -48,18 +55,39 @@ final class AppModel: ObservableObject {
     @Published private(set) var sortAscending = true
     /// Playlists keep their manual order until the user clicks a column header.
     @Published private(set) var playlistSorting = false
-    @Published var statusMessage: String?
+    /// What the library just did — scan results, saves, removals, playback
+    /// errors. All of it surfaces in the window notice now; the list keeps a
+    /// banner only for the FFmpeg prompt, which is a persistent, multi-action
+    /// state rather than a message. Kept as a property so the call sites read
+    /// the same as before.
+    var statusMessage: String? {
+        get { appNotice?.text }
+        set {
+            guard let newValue, !newValue.isEmpty else {
+                dismissNotice()
+                return
+            }
+            showNotice(AppNotice(kind: .info, text: newValue))
+        }
+    }
     /// The missing-ffmpeg banner adds install/retry/choose-path actions.
-    @Published private(set) var showsFFmpegInstallPrompt = false
+    @Published private(set) var ffmpegPrompt = FFmpegPrompt()
     @Published private(set) var transcodeCacheBytes: Int64 = 0
     @Published var isSettingsPresented = false
     /// Main content area: track list or the full-window lyrics page. UI state
     /// only; the desktop overlay and playback are unaffected.
     @Published var showsLyricsPage = false
+    /// Set when leaving the lyrics detail; the list scrolls to this track if
+    /// it exists in the section the user lands on.
+    @Published var listScrollTarget: UUID?
     /// Lyrics overlay state. Task 8 renders the overlay; the menu bar already
     /// drives these through the hooks below.
     @Published private(set) var isLyricsVisible = false
     @Published private(set) var isLyricsLocked = false
+    /// True while the locked overlay's pill is showing. The lyrics window is
+    /// click-through then, so it cannot know about hover by itself; the
+    /// controller publishes it so the text can make room for the pill.
+    @Published private(set) var isLyricsLockedBarVisible = false
     /// Lyrics display state for the current track. Starting a lookup for a
     /// different track clears the old lyrics synchronously, so a slow network
     /// response never leaves the previous song's lines on screen.
@@ -74,6 +102,13 @@ final class AppModel: ObservableObject {
     weak var lyricsOverlay: LyricsOverlayWindowController?
     /// Set by `AppDelegate` so preference changes reach the mini panel.
     weak var miniPlayer: MiniPlayerWindowController?
+    /// Bringing the main window forward belongs to the app delegate, which
+    /// owns the window; the lyrics overlay and the menu bar reach it here.
+    var onShowMainWindow: (() -> Void)?
+    var onHideMainWindow: (() -> Void)?
+    /// Whether the main window is on screen (not in the Dock, not hidden by
+    /// mini mode). The desktop lyrics show it as the state of their button.
+    @Published private(set) var isMainWindowVisible = true
     /// Mirrors the mini panel's visibility so any control can show the right
     /// open/close affordance.
     @Published private(set) var isMiniPlayerVisible = false
@@ -90,8 +125,6 @@ final class AppModel: ObservableObject {
     private var saveTimer: Timer?
     private var customAccentSaveTask: Task<Void, Never>?
     private var lyricsOpacitySaveTask: Task<Void, Never>?
-    /// Auto-dismisses the scan summary banner so it never lingers.
-    private var scanReportDismissTask: Task<Void, Never>?
     private var keyMonitor: Any?
     private var searchFocusMonitor: Any?
     private var didStart = false
@@ -143,6 +176,25 @@ final class AppModel: ObservableObject {
             )
         )
 
+        self.updates = UpdateController(
+            currentVersion: UpdateController.installedVersion,
+            supportDirectory: directory,
+            modeProvider: { [weak library] in library?.settings.updateMode ?? "notify" },
+            skippedVersion: { [weak library] in library?.settings.skippedUpdateVersion },
+            setSkippedVersion: { [weak library] version in
+                library?.settings.skippedUpdateVersion = version
+                library?.saveSettings()
+            }
+        )
+        // The update state lives in its own object; the settings sheet and the
+        // menu bar watch the model, so its changes are relayed.
+        self.updateStateObserver = updates.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        self.updates.notify = { [weak self] notice in
+            self?.showNotice(notice)
+        }
+
         restorePlaybackState()
         isLyricsLocked = library.settings.lyricsLocked
         engine.setVolume(Float(volume))
@@ -157,15 +209,15 @@ final class AppModel: ObservableObject {
         // in the existing status banner.
         let startupNotices = [library.recoveryNotice].compactMap { $0 }
         if !startupNotices.isEmpty {
-            statusMessage = startupNotices.joined(separator: " ")
+            showWarning(startupNotices.joined(separator: " "))
         }
     }
 
     deinit {
+        appNoticeTask?.cancel()
         lyricsTask?.cancel()
         customAccentSaveTask?.cancel()
         lyricsOpacitySaveTask?.cancel()
-        scanReportDismissTask?.cancel()
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         if let searchFocusMonitor { NSEvent.removeMonitor(searchFocusMonitor) }
         saveTimer?.invalidate()
@@ -187,8 +239,44 @@ final class AppModel: ObservableObject {
     func start() {
         guard !didStart else { return }
         didStart = true
+        updates.start()
         guard !library.index.folders.isEmpty else { return }
         Task { await rescan() }
+    }
+
+    // MARK: - Updates
+
+    func showNotice(_ notice: AppNotice) {
+        appNotice = notice
+        appNoticeTask?.cancel()
+        guard notice.duration > 0 else { return }
+        appNoticeTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(notice.duration * 1_000_000_000))
+            guard !Task.isCancelled, let self else { return }
+            guard self.appNotice?.id == notice.id else { return }
+            self.appNotice = nil
+        }
+    }
+
+    func dismissNotice() {
+        appNoticeTask?.cancel()
+        appNotice = nil
+    }
+
+    func setUpdateMode(_ mode: String) {
+        guard library.settings.updateMode != mode else { return }
+        library.settings.updateMode = mode
+        library.saveSettings()
+    }
+
+    /// Check on demand (settings button, app menu) and say what happened in
+    /// the same status banner everything else uses.
+    /// Check on demand (settings button, app menu). The result is reported by
+    /// the controller's window notice — `statusMessage` is the list's own
+    /// banner, for library work, and writing the update result there too put
+    /// the same message in two places at once.
+    func checkForUpdates() async {
+        await updates.check(manual: true)
     }
 
     // MARK: - Derived library state
@@ -270,6 +358,15 @@ final class AppModel: ObservableObject {
         selection = newSelection
         selectedTrackIDs = []
         selectionAnchorID = nil
+        // The lyrics page is a detail view of the current track. Choosing a
+        // library section from the sidebar is navigation, so return to the
+        // list instead of leaving the sidebar and the page out of sync.
+        if showsLyricsPage {
+            listScrollTarget = currentTrack?.id
+            withAnimation(.easeOut(duration: 0.18)) {
+                showsLyricsPage = false
+            }
+        }
         switch newSelection {
         case .recentlyAdded:
             sort = .dateAdded
@@ -531,20 +628,11 @@ final class AppModel: ObservableObject {
         showScanReport(report)
     }
 
-    /// Summarizes a scan in the status banner so the user always sees what
-    /// changed, even when a scan adds or removes nothing. The message fades
-    /// away on its own so a finished scan never leaves a stale banner up.
+    /// Summarizes a scan so the user always sees what changed, even when a
+    /// scan adds or removes nothing. It goes through the window notice, which
+    /// dismisses itself after a few seconds, so no scan report lingers.
     private func showScanReport(_ report: ScanReport) {
-        let summary = "\(Lf("新增 %d 首", report.added))，\(Lf("移除 %d 首", report.removed))"
-        statusMessage = summary
-        // Only clear this exact message: a new status set within the window
-        // (playback error, import, …) must not be wiped by the stale timer.
-        scanReportDismissTask?.cancel()
-        scanReportDismissTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 4_000_000_000)
-            guard !Task.isCancelled, self?.statusMessage == summary else { return }
-            self?.statusMessage = nil
-        }
+        statusMessage = "\(Lf("新增 %d 首", report.added))，\(Lf("移除 %d 首", report.removed))"
     }
 
     private func refreshFromLibrary() {
@@ -588,7 +676,7 @@ final class AppModel: ObservableObject {
             return
         }
         if track.isMissing {
-            statusMessage = Lf("《%@》文件缺失，无法播放。", track.title)
+            showWarning(Lf("《%@》文件缺失，无法播放。", track.title))
             return
         }
 
@@ -614,7 +702,7 @@ final class AppModel: ObservableObject {
             if engine.duration > 0 {
                 engine.play()
                 if engine.isPlaying {
-                    statusMessage = nil
+                    dismissNotice()
                 } else {
                     statusMessage = startFailureStatus
                 }
@@ -645,7 +733,7 @@ final class AppModel: ObservableObject {
     /// prepared first.
     private func resumeCurrent(_ track: Track) {
         guard !track.isMissing else {
-            statusMessage = Lf("《%@》文件缺失，无法播放。", track.title)
+            showWarning(Lf("《%@》文件缺失，无法播放。", track.title))
             return
         }
         let position = restoredPosition
@@ -692,7 +780,7 @@ final class AppModel: ObservableObject {
         if engine.duration > 0 {
             engine.seek(to: time)
             if let error = engine.lastError {
-                statusMessage = Lf("无法跳转播放位置：%@", error)
+                showWarning(Lf("无法跳转播放位置：%@", error))
             }
         } else {
             let upper = current.duration > 0 ? current.duration : time
@@ -707,7 +795,7 @@ final class AppModel: ObservableObject {
 
     private func playFromQueue(_ id: UUID) -> Bool {
         guard let track = tracks.first(where: { $0.id == id }) else {
-            statusMessage = L("曲目不在音乐库中。")
+            showWarning(L("曲目不在音乐库中。"))
             return false
         }
         return startTrack(track)
@@ -720,17 +808,17 @@ final class AppModel: ObservableObject {
     @discardableResult
     private func startTrack(_ track: Track, startAt: TimeInterval = 0) -> Bool {
         guard !track.isMissing else {
-            statusMessage = Lf("《%@》文件缺失，已跳过。", track.title)
+            showWarning(Lf("《%@》文件缺失，已跳过。", track.title))
             return false
         }
 
         if AudioFormatSupport.isNative(track.url) {
-            showsFFmpegInstallPrompt = false
+            ffmpegPrompt.clear()
             pendingTranscodeTrack = nil
             return loadAndPlay(track, url: track.url, startAt: startAt)
         }
         if let cached = transcode.cachedURL(for: track) {
-            showsFFmpegInstallPrompt = false
+            ffmpegPrompt.clear()
             pendingTranscodeTrack = nil
             return loadAndPlay(track, url: cached, startAt: startAt)
         }
@@ -738,8 +826,7 @@ final class AppModel: ObservableObject {
             // Leave the current song alone: a missing dependency must never
             // freeze the UI or block formats AVFoundation can play.
             pendingTranscodeTrack = track
-            showsFFmpegInstallPrompt = true
-            statusMessage = Lf("需要 FFmpeg 才能播放此格式（《%@》）。", track.title)
+            ffmpegPrompt.show(Lf("需要 FFmpeg 才能播放此格式（《%@》）。", track.title))
             return true
         }
 
@@ -747,7 +834,7 @@ final class AppModel: ObservableObject {
         engine.unload()
         currentTrack = track
         restoredPosition = startAt
-        showsFFmpegInstallPrompt = false
+        ffmpegPrompt.clear()
         statusMessage = Lf("正在准备《%@》…", track.title)
         preparingTrackID = track.id
 
@@ -764,10 +851,9 @@ final class AppModel: ObservableObject {
                 self.preparingTrackID = nil
                 if case TranscodeError.ffmpegMissing = error {
                     self.pendingTranscodeTrack = track
-                    self.showsFFmpegInstallPrompt = true
-                    self.statusMessage = Lf("需要 FFmpeg 才能播放此格式（《%@》）。", track.title)
+                    self.ffmpegPrompt.show(Lf("需要 FFmpeg 才能播放此格式（《%@》）。", track.title))
                 } else {
-                    self.statusMessage = Lf("无法准备《%@》：%@", track.title, error.localizedDescription)
+                    self.showWarning(Lf("无法准备《%@》：%@", track.title, error.localizedDescription))
                 }
             }
         }
@@ -785,7 +871,7 @@ final class AppModel: ObservableObject {
         do {
             try engine.load(url: url)
         } catch {
-            statusMessage = Lf("无法播放《%@》：%@", track.title, engine.lastError ?? L("未知错误"))
+            showWarning(Lf("无法播放《%@》：%@", track.title, engine.lastError ?? L("未知错误")))
             return false
         }
         if startAt > 0 {
@@ -795,7 +881,7 @@ final class AppModel: ObservableObject {
         restoredPosition = 0
         engine.play()
         if engine.isPlaying {
-            statusMessage = nil
+            dismissNotice()
         } else {
             statusMessage = startFailureStatus
         }
@@ -854,13 +940,12 @@ final class AppModel: ObservableObject {
     @discardableResult
     func redetectFFmpeg() -> String {
         guard let found = FFmpegLocator.find(customPath: library.settings.ffmpegPath) else {
-            showsFFmpegInstallPrompt = true
             let message = L("仍未找到 FFmpeg，请先运行 brew install ffmpeg。")
-            statusMessage = message
+            ffmpegPrompt.show(message)
             return message
         }
         transcode.updateFFmpeg(found)
-        showsFFmpegInstallPrompt = false
+        ffmpegPrompt.clear()
         let message = Lf("已找到 FFmpeg：%@", found.path)
         statusMessage = message
         prepareLibraryFormats()
@@ -889,7 +974,7 @@ final class AppModel: ObservableObject {
         library.settings.ffmpegPath = url.path
         library.saveSettings()
         transcode.updateFFmpeg(url)
-        showsFFmpegInstallPrompt = false
+        ffmpegPrompt.clear()
         let message = Lf("已使用 FFmpeg：%@", url.path)
         statusMessage = message
         prepareLibraryFormats()
@@ -954,6 +1039,9 @@ final class AppModel: ObservableObject {
     /// Clicks the player-bar cover: spring slide/fade between the list and the
     /// now-playing lyrics page. The transition itself lives on the views.
     func toggleLyricsPage() {
+        if showsLyricsPage {
+            listScrollTarget = currentTrack?.id
+        }
         withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
             showsLyricsPage.toggle()
         }
@@ -962,11 +1050,38 @@ final class AppModel: ObservableObject {
     /// Switches to the mini player from anywhere in the UI. Every main
     /// window (not the floating lyrics/mini panels) is ordered out; returning
     /// still goes through the menu bar or the mini player's expand button.
+    /// The main window and the mini player take turns; whichever shows, the
+    /// other is gone. Both flags are written here so no caller can leave them
+    /// disagreeing about what is on screen.
     func showMiniPlayer() {
         for window in NSApp.windows where !(window is NSPanel) && window.canBecomeMain {
             window.orderOut(nil)
         }
         miniPlayer?.show()
+        setMainWindowVisible(false)
+    }
+
+    func showMainWindow() {
+        onShowMainWindow?()
+    }
+
+    /// Same thing ⌘W does while `keepRunningOnClose` is on: the window goes
+    /// away, the app keeps playing.
+    func hideMainWindow() {
+        onHideMainWindow?()
+    }
+
+    /// What the three surfaces should all agree on: the main window is on
+    /// screen only when it is not hidden and the mini player has not taken
+    /// its place. Derived rather than stored, so a single missed transition
+    /// cannot leave a button lit for a window that is not there.
+    var isMainWindowOnScreen: Bool {
+        isMainWindowVisible && !isMiniPlayerVisible
+    }
+
+    func setMainWindowVisible(_ visible: Bool) {
+        guard isMainWindowVisible != visible else { return }
+        isMainWindowVisible = visible
     }
 
     /// Closes the mini player without forcing the main window back; the menu
@@ -982,6 +1097,7 @@ final class AppModel: ObservableObject {
     func setMiniPlayerVisible(_ visible: Bool) {
         guard isMiniPlayerVisible != visible else { return }
         isMiniPlayerVisible = visible
+        if visible { setMainWindowVisible(false) }
     }
 
     func toggleLyricsVisibility() {
@@ -996,6 +1112,11 @@ final class AppModel: ObservableObject {
 
     func toggleLyricsLock() {
         setLyricsLocked(!isLyricsLocked)
+    }
+
+    func setLyricsLockedBarVisible(_ visible: Bool) {
+        guard isLyricsLockedBarVisible != visible else { return }
+        isLyricsLockedBarVisible = visible
     }
 
     func setLyricsLocked(_ locked: Bool) {
@@ -1048,9 +1169,24 @@ final class AppModel: ObservableObject {
 
     var nextLyricText: String? {
         guard let lyrics, lyrics.isSynced, !lyrics.lines.isEmpty else { return nil }
-        let index = (currentLyricLineIndex ?? 0) + 1
-        guard lyrics.lines.indices.contains(index) else { return nil }
-        return lyrics.lines[index].text
+        let currentIndex = currentLyricLineIndex ?? 0
+        guard lyrics.lines.indices.contains(currentIndex) else { return nil }
+        let current = lyrics.lines[currentIndex].text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // Some LRCs repeat a phrase on adjacent timestamps (e.g. 说句心里话
+        // repeats “梦中的她” and “既然来当兵”). Showing the same words again
+        // in the smaller preview line reads like a duplicate/overlap, so skip
+        // identical or empty lines and preview the next distinct one.
+        var index = currentIndex + 1
+        while lyrics.lines.indices.contains(index) {
+            let candidate = lyrics.lines[index].text
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !candidate.isEmpty, candidate != current {
+                return lyrics.lines[index].text
+            }
+            index += 1
+        }
+        return nil
     }
 
     var hasLyricsOverride: Bool {
@@ -1553,7 +1689,9 @@ final class AppModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // The engine publishes at ~2 Hz, which is ample for per-line changes.
+        // The engine publishes at ~10 Hz: a 2 Hz timer made lyric lines lag up
+        // to half a second, so at a boundary the previous line stayed on top
+        // while the next line was already being sung below it.
         engine.$position
             .sink { [weak self] position in
                 Task { @MainActor [weak self] in
@@ -1596,10 +1734,16 @@ final class AppModel: ObservableObject {
         endSearchFocus()
     }
 
+    /// Closes the FFmpeg banner: it stays until the user fixes the dependency
+    /// or dismisses it.
     func dismissStatus() {
-        statusMessage = nil
-        showsFFmpegInstallPrompt = false
+        ffmpegPrompt.clear()
         pendingTranscodeTrack = nil
+    }
+
+    /// An error the user should read: it stays until closed.
+    func showWarning(_ text: String) {
+        showNotice(AppNotice(kind: .warning, text: text))
     }
 
     /// Clicking anywhere outside a text field resigns the search field, so
