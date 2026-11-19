@@ -1,6 +1,6 @@
 import Foundation
 
-/// Keeps the library's scanned folders in sync with organizer destinations.
+/// Keeps the library's scanned folders in sync with file locations.
 ///
 /// The library is folder-based: a file moved outside every imported folder is
 /// invisible to the next rescan, so the chosen destination root must be added

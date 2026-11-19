@@ -35,9 +35,12 @@ struct MainWindowView: View {
                                 insertion: .move(edge: .bottom).combined(with: .opacity),
                                 removal: .opacity
                             ))
+                    } else if model.selection == .artists {
+                        ArtistGridView(model: model)
+                    } else if model.selection == .albums {
+                        AlbumGridView(model: model)
                     } else {
                         TrackListView(model: model)
-                            .transition(.opacity)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -79,12 +82,6 @@ struct MainWindowView: View {
         }
         .sheet(isPresented: $model.isSettingsPresented) {
             SettingsView(model: model)
-        }
-        .sheet(item: $model.tagEditorRequest) { request in
-            TagEditorView(model: model, tracks: request.tracks)
-        }
-        .sheet(item: $model.organizerRequest) { request in
-            OrganizerPreviewView(model: model, tracks: request.tracks)
         }
     }
 

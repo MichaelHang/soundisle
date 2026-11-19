@@ -16,10 +16,22 @@ public enum FolderRenameError: LocalizedError {
     }
 }
 
+/// What a scan changed, so the UI can summarize it ("added 3, removed 2").
+public struct ScanReport: Equatable {
+    public let added: Int
+    public let removed: Int
+    public init(added: Int, removed: Int) {
+        self.added = added
+        self.removed = removed
+    }
+    public static let empty = ScanReport(added: 0, removed: 0)
+}
+
 /// Owns the in-memory library and persists it through `IndexStore`.
 /// Rescans are incremental: unchanged files keep their `Track` untouched,
-/// changed files keep their `id`, and vanished files stay in the index marked
-/// `isMissing` so playlists never silently lose entries.
+/// changed files keep their `id`, and vanished files are removed from the
+/// index (so playlists drop them too). Files the user removed from the
+/// library are remembered and never re-added while they still exist on disk.
 ///
 /// Main-actor isolated: views read `index` directly, while the expensive
 /// scanning and metadata work is awaited inside nonisolated helpers.
@@ -39,6 +51,11 @@ public final class LibraryStore {
 
     public var missingTracks: [Track] {
         index.tracks.filter(\.isMissing)
+    }
+
+    /// Removed files that are still on disk, so Settings can re-add them.
+    public var removedTracks: [Track] {
+        index.removedTracks
     }
 
     private let directory: URL
@@ -130,15 +147,16 @@ public final class LibraryStore {
         }
     }
 
+    @discardableResult
     public func addFolder(
         _ url: URL,
         reader: MetadataReading = AVFoundationMetadataReader()
-    ) async {
+    ) async -> ScanReport {
         let folder = url.standardizedFileURL
         if !index.folders.contains(where: { $0.standardizedFileURL == folder }) {
             index.folders.append(folder)
         }
-        await rescan(reader: reader)
+        return await rescan(reader: reader)
     }
 
     /// Removes a folder and the tracks that live inside it. Playlist entries for
@@ -213,29 +231,33 @@ public final class LibraryStore {
         return destination
     }
 
-    public func rescan(reader: MetadataReading = AVFoundationMetadataReader()) async {
+    @discardableResult
+    public func rescan(reader: MetadataReading = AVFoundationMetadataReader()) async -> ScanReport {
         await rescan(folders: index.folders, scoped: false, reader: reader)
     }
 
     /// Rescans one imported folder. Tracks outside it are left exactly as they
     /// were, so refreshing one folder never marks unrelated files missing.
+    @discardableResult
     public func rescan(
         folder: URL,
         reader: MetadataReading = AVFoundationMetadataReader()
-    ) async {
+    ) async -> ScanReport {
         let folder = folder.standardizedFileURL
-        guard index.folders.contains(where: { $0.standardizedFileURL == folder }) else { return }
-        await rescan(folders: [folder], scoped: true, reader: reader)
+        guard index.folders.contains(where: { $0.standardizedFileURL == folder }) else {
+            return .empty
+        }
+        return await rescan(folders: [folder], scoped: true, reader: reader)
     }
 
     private func rescan(
         folders: [URL],
         scoped: Bool,
         reader: MetadataReading
-    ) async {
+    ) async -> ScanReport {
         guard !folders.isEmpty else {
             if !scoped { unreadableURLs = [] }
-            return
+            return .empty
         }
 
         let prefixes = folders.map { $0.standardizedFileURL.path + "/" }
@@ -253,6 +275,8 @@ public final class LibraryStore {
         for track in index.tracks {
             existingByPath[track.url.standardizedFileURL.path] = track
         }
+        // Files the user removed stay ignored as long as they are still on disk.
+        let removedPaths = Set(index.removedTracks.map { $0.url.standardizedFileURL.path })
 
         var scannedPaths = Set<String>()
         var newPaths = Set<String>()
@@ -262,6 +286,7 @@ public final class LibraryStore {
             let path = scanned.url.standardizedFileURL.path
             scannedPaths.insert(path)
             guard let existing = existingByPath.removeValue(forKey: path) else {
+                guard !removedPaths.contains(path) else { continue }
                 newPaths.insert(path)
                 rebuild.append(scanned)
                 continue
@@ -334,21 +359,51 @@ public final class LibraryStore {
         }
 
         var tracks = kept + rebuilt
+        var autoRemovedIDs: [UUID] = []
         for track in index.tracks where !scannedPaths.contains(track.url.standardizedFileURL.path) {
             var track = track
             if let newURL = renamedURLs[track.id] {
+                // Rename/move match: reuse the row under its new path.
                 track.url = newURL
                 track.isMissing = false
+                tracks.append(track)
             } else if inScope(track.url),
                       !unreadablePaths.contains(track.url.standardizedFileURL.path) {
-                // A folder-scoped rescan only judges files it actually
-                // scanned; everything outside the folder is carried over.
-                track.isMissing = true
+                // The file no longer exists where the scan looked for it. The
+                // user asked for vanished files to be removed automatically, so
+                // the row is dropped (and its playlist entries and cover with
+                // it) instead of being kept as a missing stub. A folder-scoped
+                // rescan only judges files it actually scanned; anything
+                // outside the folder is carried over untouched.
+                autoRemovedIDs.append(track.id)
+                deleteArtwork(track)
+            } else {
+                tracks.append(track)
             }
-            tracks.append(track)
         }
         index.tracks = tracks
+        if !autoRemovedIDs.isEmpty {
+            let ids = Set(autoRemovedIDs)
+            playlists = playlists.map { playlist in
+                var playlist = playlist
+                playlist.trackIDs.removeAll { ids.contains($0) }
+                return playlist
+            }
+            savePlaylists()
+        }
+        // Removed files that have since been deleted from disk are no longer
+        // re-addable; forget them so the Settings list stays accurate.
+        let survivingRemoved = index.removedTracks.filter {
+            manager.fileExists(atPath: $0.url.standardizedFileURL.path)
+        }
+        if survivingRemoved.count != index.removedTracks.count {
+            index.removedTracks = survivingRemoved
+        }
         saveIndex()
+        // Rename/move matches are the same file under a new path, so they are
+        // neither an addition nor a removal from the user's point of view.
+        let added = newPaths.subtracting(consumedPaths).count
+        return ScanReport(added: added, removed: autoRemovedIDs.count)
     }
 
     public func updateTrack(_ track: Track) {
@@ -429,12 +484,42 @@ public final class LibraryStore {
     /// Removes several rows in one save. Files on disk are never touched.
     public func removeTracks(ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
-        removeTracks { ids.contains($0.id) }
+        // 从音乐库移除 is the user saying "never scan this file back in": the
+        // rows are remembered so a later rescan ignores them while the file is
+        // still on disk, and Settings can re-add them on request.
+        removeTracks(where: { ids.contains($0.id) }, recordRemoved: true)
+    }
+
+    /// Re-adds a previously removed file. The path leaves `removedTracks` and
+    /// the containing folder is scanned (or imported, if the file sits outside
+    /// every imported folder). The row is re-inserted under its original id
+    /// first, so the incremental rescan keeps it (and refreshes metadata only
+    /// if the file actually changed since it was removed).
+    public func reAddRemovedTrack(
+        _ track: Track,
+        reader: MetadataReading = AVFoundationMetadataReader()
+    ) async {
+        let path = track.url.standardizedFileURL.path
+        index.removedTracks.removeAll { $0.url.standardizedFileURL.path == path }
+        if !index.tracks.contains(where: { $0.url.standardizedFileURL.path == path }) {
+            var restored = track
+            restored.isMissing = false
+            index.tracks.append(restored)
+        }
+        saveIndex()
+        let covers = index.folders.contains {
+            path.hasPrefix($0.standardizedFileURL.path + "/")
+        }
+        if covers {
+            await rescan(reader: reader)
+        } else {
+            await addFolder(track.url.deletingLastPathComponent(), reader: reader)
+        }
     }
 
     // MARK: - Private
 
-    private func removeTracks(where predicate: (Track) -> Bool) {
+    private func removeTracks(where predicate: (Track) -> Bool, recordRemoved: Bool = false) {
         let removed = index.tracks.filter(predicate)
         if !removed.isEmpty {
             let ids = Set(removed.map(\.id))
@@ -446,6 +531,15 @@ public final class LibraryStore {
             }
             for track in removed {
                 deleteArtwork(track)
+            }
+            if recordRemoved {
+                // Only files that still exist on disk can be re-added later.
+                for track in removed where manager.fileExists(atPath: track.url.standardizedFileURL.path) {
+                    let path = track.url.standardizedFileURL.path
+                    guard !index.removedTracks.contains(where: { $0.url.standardizedFileURL.path == path })
+                    else { continue }
+                    index.removedTracks.append(track)
+                }
             }
         }
         saveIndex()

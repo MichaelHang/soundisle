@@ -63,8 +63,8 @@ public enum TrackFactory {
                   !trimmed.isEmpty else { return nil }
             // Library metadata is sometimes decoded as Latin-1 even though the
             // file stored UTF-8 or GB18030. Repair the display string here so
-            // every Track built by the scanner (or rebuilt after a tag edit)
-            // carries readable text; the files themselves are untouched.
+            // every Track built by the scanner carries readable text; the
+            // files themselves are untouched.
             return MojibakeRepair.repaired(trimmed) ?? trimmed
         }
 
@@ -85,35 +85,5 @@ public enum TrackFactory {
             modifiedAt: attributes?[.modificationDate] as? Date ?? Date(),
             artworkFileName: nil
         )
-    }
-
-    /// Rebuilds a row after a tag edit, keeping `make(url:metadata:)`'s filename
-    /// fallbacks. Without this, an untagged `Artist - Title.mp3` would lose the
-    /// artist/track number the scanner inferred from its filename, and undoing
-    /// a title edit would leave the removed title in the list.
-    public static func applying(_ fields: TagFields, to track: Track) -> Track {
-        let parsed = FilenameParser.parse(filename: track.url.lastPathComponent)
-        let stem = (track.url.lastPathComponent as NSString).deletingPathExtension
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        func clean(_ value: String?) -> String? {
-            guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !trimmed.isEmpty else { return nil }
-            // Library metadata is sometimes decoded as Latin-1 even though the
-            // file stored UTF-8 or GB18030. Repair the display string here so
-            // every Track built by the scanner (or rebuilt after a tag edit)
-            // carries readable text; the files themselves are untouched.
-            return MojibakeRepair.repaired(trimmed) ?? trimmed
-        }
-
-        var updated = track
-        updated.title = clean(fields.title) ?? clean(parsed.title) ?? stem
-        updated.artist = clean(fields.artist) ?? clean(parsed.artist) ?? ""
-        updated.album = clean(fields.album) ?? ""
-        updated.albumArtist = clean(fields.albumArtist)
-        updated.year = fields.year
-        updated.trackNumber = fields.trackNumber ?? parsed.trackNumber
-        updated.genre = clean(fields.genre)
-        return updated
     }
 }

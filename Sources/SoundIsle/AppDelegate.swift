@@ -125,7 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// SwiftUI's default File/Edit/View/Window/Help menus are noise for this
-    /// player. Keep the app menu plus the custom 播放/歌词/整理 menus.
+    /// player. Keep the app menu plus the custom playback/lyrics menus.
     private func trimMainMenu() {
         let unwanted: Set<String> = ["File", "Edit", "View", "Window", "Help",
                                   "文件", "编辑", "显示", "窗口", "帮助"]

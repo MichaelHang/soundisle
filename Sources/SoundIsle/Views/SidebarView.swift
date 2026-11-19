@@ -31,6 +31,22 @@ struct SidebarView: View {
                     ) {
                         model.select(.recentlyAdded)
                     }
+                    libraryRow(
+                        title: L("专辑"),
+                        icon: Icons.album,
+                        count: model.albumCount,
+                        isSelected: selection == .albums
+                    ) {
+                        model.select(.albums)
+                    }
+                    libraryRow(
+                        title: L("歌手"),
+                        icon: Icons.artist,
+                        count: model.artistCount,
+                        isSelected: selection == .artists
+                    ) {
+                        model.select(.artists)
+                    }
 
                     foldersHeader
                     if model.folders.isEmpty {

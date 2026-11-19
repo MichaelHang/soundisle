@@ -10,22 +10,10 @@ import UniformTypeIdentifiers
 enum LibrarySelection: Hashable {
     case allMusic
     case recentlyAdded
+    case albums
+    case artists
     case folder(URL)
     case playlist(UUID)
-}
-
-/// A pending tag-editor sheet. `Identifiable` so `.sheet(item:)` recreates the
-/// editor whenever the user opens it for a different selection.
-struct TagEditorRequest: Identifiable {
-    let id = UUID()
-    let tracks: [Track]
-}
-
-/// A pending file-organizer preview. Built once per presentation so editing
-/// the template re-plans against a stable selection.
-struct OrganizerRequest: Identifiable {
-    let id = UUID()
-    let tracks: [Track]
 }
 
 /// App-wide state: the library on disk, the audio engine, the playback queue
@@ -40,9 +28,6 @@ final class AppModel: ObservableObject {
     /// In-memory playlist operations; every change is persisted through
     /// `library.savePlaylists()`, the only writer of `playlists.json`.
     let playlists: PlaylistStore
-    let tagService = TagService()
-    let tagUndoStore: TagEditUndoStore
-    let organizer: FileOrganizer
     /// Serial background transcoder for formats AVFoundation cannot read.
     let transcode: TranscodeQueue
 
@@ -58,19 +43,12 @@ final class AppModel: ObservableObject {
     /// Multi-selection: ⌘-click toggles, Shift-click extends from the anchor.
     /// A plain click still plays and collapses the selection to one row.
     @Published private(set) var selectedTrackIDs: Set<UUID> = []
-    @Published var tagEditorRequest: TagEditorRequest?
-    @Published private(set) var tagUndoCount = 0
-    @Published var organizerRequest: OrganizerRequest?
-    @Published private(set) var organizeUndoCount = 0
     @Published var searchText = ""
     @Published private(set) var sort: TrackSort = .title
     @Published private(set) var sortAscending = true
     /// Playlists keep their manual order until the user clicks a column header.
     @Published private(set) var playlistSorting = false
     @Published var statusMessage: String?
-    /// Live progress for long file work (tag writes / organize). Non-nil also
-    /// means a file operation is in flight, so sheets can disable their action.
-    @Published private(set) var fileWorkProgress: String?
     /// The missing-ffmpeg banner adds install/retry/choose-path actions.
     @Published private(set) var showsFFmpegInstallPrompt = false
     @Published private(set) var transcodeCacheBytes: Int64 = 0
@@ -112,6 +90,8 @@ final class AppModel: ObservableObject {
     private var saveTimer: Timer?
     private var customAccentSaveTask: Task<Void, Never>?
     private var lyricsOpacitySaveTask: Task<Void, Never>?
+    /// Auto-dismisses the scan summary banner so it never lingers.
+    private var scanReportDismissTask: Task<Void, Never>?
     private var keyMonitor: Any?
     private var searchFocusMonitor: Any?
     private var didStart = false
@@ -140,9 +120,6 @@ final class AppModel: ObservableObject {
 
         self.library = library
         self.engine = PlayerEngine()
-        let undoDirectory = directory.appendingPathComponent("undo", isDirectory: true)
-        self.tagUndoStore = TagEditUndoStore(directory: undoDirectory)
-        self.organizer = FileOrganizer(undo: OrganizeUndoStore(directory: undoDirectory))
         let transcodeRoot = directory.appendingPathComponent("transcode", isDirectory: true)
         try? FileManager.default.createDirectory(at: transcodeRoot, withIntermediateDirectories: true)
         self.transcodeRoot = transcodeRoot
@@ -167,8 +144,6 @@ final class AppModel: ObservableObject {
         )
 
         restorePlaybackState()
-        tagUndoCount = tagUndoStore.entries.count
-        organizeUndoCount = organizer.undo.entries.count
         isLyricsLocked = library.settings.lyricsLocked
         engine.setVolume(Float(volume))
         observeEngine()
@@ -178,13 +153,9 @@ final class AppModel: ObservableObject {
         refreshTranscodeCacheSize()
         applyAppearance()
 
-        // Recovery is never silent: index/settings/playlist fallbacks and a
-        // corrupt undo history all surface in the existing status banner.
-        let startupNotices = [
-            library.recoveryNotice,
-            tagUndoStore.loadNotice,
-            organizer.undo.loadNotice,
-        ].compactMap { $0 }
+        // Recovery is never silent: index/settings/playlist fallbacks surface
+        // in the existing status banner.
+        let startupNotices = [library.recoveryNotice].compactMap { $0 }
         if !startupNotices.isEmpty {
             statusMessage = startupNotices.joined(separator: " ")
         }
@@ -194,6 +165,7 @@ final class AppModel: ObservableObject {
         lyricsTask?.cancel()
         customAccentSaveTask?.cancel()
         lyricsOpacitySaveTask?.cancel()
+        scanReportDismissTask?.cancel()
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         if let searchFocusMonitor { NSEvent.removeMonitor(searchFocusMonitor) }
         saveTimer?.invalidate()
@@ -249,10 +221,18 @@ final class AppModel: ObservableObject {
         return searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// 专辑/歌手 keep the grouping, so the list view cannot reorder or sort them.
+    var isGroupedSelection: Bool {
+        switch selection {
+        case .albums, .artists: return true
+        default: return false
+        }
+    }
+
     var visibleTracks: [Track] {
         let source: [Track]
         switch selection {
-        case .allMusic, .recentlyAdded:
+        case .allMusic, .recentlyAdded, .albums, .artists:
             source = tracks
         case .folder(let folder):
             let prefix = folder.standardizedFileURL.path + "/"
@@ -269,6 +249,23 @@ final class AppModel: ObservableObject {
         return TrackQuery.apply(source, query: searchText, sort: sort, ascending: sortAscending)
     }
 
+    /// The album/artist browser's groups, built from the same filtered source
+    /// `visibleTracks` uses so search and playback all agree. `select` points
+    /// the sort at the grouping column, so grouping is stable and deterministic.
+    var libraryGroups: [TrackGroup] {
+        guard isGroupedSelection else { return [] }
+        return LibraryGrouping.groups(
+            visibleTracks,
+            by: selection == .artists ? .artist : .album
+        )
+    }
+
+    /// Distinct album names, for the sidebar's 专辑 row.
+    var albumCount: Int { Set(tracks.map(\.album)).count }
+
+    /// Distinct artist names, for the sidebar's 歌手 row.
+    var artistCount: Int { Set(tracks.map(\.artist)).count }
+
     func select(_ newSelection: LibrarySelection) {
         selection = newSelection
         selectedTrackIDs = []
@@ -277,6 +274,12 @@ final class AppModel: ObservableObject {
         case .recentlyAdded:
             sort = .dateAdded
             sortAscending = false
+        case .albums:
+            sort = .album
+            sortAscending = true
+        case .artists:
+            sort = .artist
+            sortAscending = true
         case .playlist:
             playlistSorting = false
         case .allMusic, .folder:
@@ -300,8 +303,14 @@ final class AppModel: ObservableObject {
 
     /// A row click. ⌘ toggles one row, Shift extends from the last clicked
     /// row, and a plain click keeps the usual single-click playback while
-    /// collapsing the selection.
-    func handleTrackClick(_ trackID: UUID, modifiers: NSEvent.ModifierFlags = NSEvent.modifierFlags) {
+    /// collapsing the selection. `source` scopes the queue to a subset (the
+    /// detail pages play within one album or artist instead of the whole
+    /// browser).
+    func handleTrackClick(
+        _ trackID: UUID,
+        modifiers: NSEvent.ModifierFlags = NSEvent.modifierFlags,
+        source: [Track]? = nil
+    ) {
         if modifiers.contains(.command) {
             if selectedTrackIDs.contains(trackID) {
                 selectedTrackIDs.remove(trackID)
@@ -320,7 +329,7 @@ final class AppModel: ObservableObject {
         }
         selectedTrackIDs = [trackID]
         selectionAnchorID = trackID
-        play(trackID: trackID)
+        play(trackID: trackID, source: source)
     }
 
     /// Rows a context-menu action applies to: the whole selection when the
@@ -329,444 +338,6 @@ final class AppModel: ObservableObject {
         guard selectedTrackIDs.contains(trackID) else { return [trackID] }
         let ordered = visibleTracks.map(\.id).filter { selectedTrackIDs.contains($0) }
         return ordered.isEmpty ? [trackID] : ordered
-    }
-
-    // MARK: - Tag editing
-
-    func beginTagEdit(trackIDs: [UUID]) {
-        let ids = Set(trackIDs)
-        let targets = visibleTracks.filter { ids.contains($0.id) }
-        guard !targets.isEmpty else { return }
-        tagEditorRequest = TagEditorRequest(tracks: targets)
-    }
-
-    var canUndoTagEdit: Bool { tagUndoCount > 0 }
-
-    @discardableResult
-    func clearTagUndoHistory() -> String {
-        do {
-            try tagUndoStore.clear()
-            tagUndoCount = 0
-            let message = L("已清空编辑撤销记录。")
-            statusMessage = message
-            return message
-        } catch {
-            let message = Lf("清空编辑撤销记录失败：%@", error.localizedDescription)
-            statusMessage = message
-            return message
-        }
-    }
-
-    @discardableResult
-    func undoLastTagEdit() -> String {
-        do {
-            guard let entry = try tagUndoStore.undoLast() else {
-                let message = L("没有可撤销的标签编辑。")
-                statusMessage = message
-                return message
-            }
-            tagUndoCount = tagUndoStore.entries.count
-            updateIndex(
-                for: entry.url,
-                fields: entry.before,
-                artworkChanged: entry.before.artworkBase64 != entry.after.artworkBase64
-            )
-            refreshFromLibrary()
-            let message = Lf("已撤销对《%@》的标签编辑。", entry.url.lastPathComponent)
-            statusMessage = message
-            return message
-        } catch {
-            tagUndoCount = tagUndoStore.entries.count
-            let message = Lf("撤销失败：%@", error.localizedDescription)
-            statusMessage = message
-            return message
-        }
-    }
-
-    /// Applies `edits` to every track. Fields left nil are not modified.
-    /// Returns a Chinese summary on failure, or nil when every write succeeded.
-    ///
-    /// TagLib reads/writes happen one file at a time in a detached task, so a
-    /// large batch never freezes the window; progress and the index update run
-    /// back on the main actor.
-    func applyTagEdit(_ edits: TagFields, to tracks: [Track]) async -> String? {
-        guard !tracks.isEmpty else { return L("没有选择歌曲。") }
-        guard fileWorkProgress == nil else { return L("已有文件操作正在进行。") }
-
-        let total = tracks.count
-        fileWorkProgress = Lf("正在写入 0/%d…", total)
-        var changed: [(track: Track, before: TagFields, after: TagFields)] = []
-        var failures: [String] = []
-        var undoFailures = 0
-
-        for (index, track) in tracks.enumerated() {
-            fileWorkProgress = Lf("正在写入 %d/%d…", index + 1, total)
-            let result = await Task.detached(priority: .userInitiated) { () -> TagEditFileResult in
-                let service = TagService()
-                guard let before = service.read(from: track.url) else {
-                    return TagEditFileResult(changed: nil, failure: Lf("《%@》无法读取标签", track.title))
-                }
-                var after = before
-                if let value = edits.title { after.title = Self.nonEmpty(value) }
-                if let value = edits.artist { after.artist = Self.nonEmpty(value) }
-                if let value = edits.album { after.album = Self.nonEmpty(value) }
-                if let value = edits.albumArtist { after.albumArtist = Self.nonEmpty(value) }
-                if let value = edits.genre { after.genre = Self.nonEmpty(value) }
-                if let value = edits.year { after.year = value > 0 ? value : nil }
-                if let value = edits.trackNumber { after.trackNumber = value > 0 ? value : nil }
-                if let value = edits.artworkBase64 {
-                    after.artworkBase64 = value.isEmpty ? nil : value
-                }
-                guard after != before else { return TagEditFileResult(changed: nil, failure: nil) }
-
-                do {
-                    // Partial write: TagService leaves omitted fields untouched,
-                    // and the C bridge swaps in a temporary copy atomically.
-                    try service.write(edits, to: track.url)
-                } catch {
-                    return TagEditFileResult(
-                        changed: nil,
-                        failure: Lf("《%@》：%@", track.title, error.localizedDescription)
-                    )
-                }
-                return TagEditFileResult(
-                    changed: (track, before, after),
-                    failure: nil
-                )
-            }.value
-
-            if let failure = result.failure {
-                failures.append(failure)
-            }
-            if let change = result.changed {
-                changed.append(change)
-                do {
-                    try tagUndoStore.record(
-                        TagUndoEntry(url: change.track.url, before: change.before, after: change.after)
-                    )
-                } catch {
-                    undoFailures += 1
-                }
-            }
-        }
-
-        fileWorkProgress = nil
-        tagUndoCount = tagUndoStore.entries.count
-        for item in changed {
-            updateIndex(
-                for: item.track.url,
-                fields: item.after,
-                artworkChanged: item.before.artworkBase64 != item.after.artworkBase64
-            )
-        }
-        if !changed.isEmpty {
-            refreshFromLibrary()
-        }
-
-        var notes = failures
-        if undoFailures > 0 {
-            notes.append(Lf("%d 首的撤销记录保存失败", undoFailures))
-        }
-        guard !notes.isEmpty else {
-            statusMessage = changed.isEmpty
-                ? L("没有需要修改的标签。")
-                : Lf("已更新 %d 首歌曲的标签。", changed.count)
-            return nil
-        }
-        let summary = Lf(
-            "已更新 %d 首，%d 项失败：%@",
-            changed.count,
-            notes.count,
-            notes.prefix(2).joined(separator: L("；"))
-        )
-        statusMessage = summary
-        return summary
-    }
-
-    /// One file's outcome from the background tag-write loop.
-    private struct TagEditFileResult {
-        var changed: (track: Track, before: TagFields, after: TagFields)?
-        var failure: String?
-    }
-
-    /// A writable file whose tag fields can be repaired, plus preview text.
-    private struct MojibakeRepairCandidate {
-        let track: Track
-        let fields: TagFields
-        let changes: [String]
-    }
-
-    /// 「修复乱码标签…」: reads tags (not display strings) on writable files,
-    /// previews the repaired fields, then writes each repaired snapshot through
-    /// the normal tag pipeline so undo records are kept. Non-writable formats
-    /// (e.g. INFO-only WAV) are skipped; the list still shows them repaired.
-    func promptRepairMojibake(trackIDs: [UUID]) {
-        let ids = Set(trackIDs)
-        let targets = visibleTracks.filter { ids.contains($0.id) }
-        guard !targets.isEmpty else {
-            statusMessage = L("没有选择歌曲。")
-            return
-        }
-        Task {
-            guard fileWorkProgress == nil else {
-                statusMessage = L("已有文件操作正在进行。")
-                return
-            }
-            fileWorkProgress = Lf("正在检查乱码 0/%d…", targets.count)
-            let candidates = await Task.detached(priority: .userInitiated) {
-                () -> [MojibakeRepairCandidate] in
-                let service = TagService()
-                var found: [MojibakeRepairCandidate] = []
-                for (index, track) in targets.enumerated() {
-                    defer {
-                        DispatchQueue.main.async { [weak self] in
-                            guard let self, self.fileWorkProgress != nil else { return }
-                            self.fileWorkProgress = Lf("正在检查乱码 %d/%d…", index + 1, targets.count)
-                        }
-                    }
-                    let capabilities = TagFormatCapabilities.capabilities(for: track.url)
-                    guard capabilities.canWrite,
-                          let before = service.read(from: track.url) else { continue }
-
-                    var edits = TagFields()
-                    var changes: [String] = []
-                    if let value = before.title,
-                       let fixed = MojibakeRepair.repaired(value) {
-                        edits.title = fixed
-                        changes.append(Lf("标题：%@ → %@", value, fixed))
-                    }
-                    if let value = before.artist,
-                       let fixed = MojibakeRepair.repaired(value) {
-                        edits.artist = fixed
-                        changes.append(Lf("歌手：%@ → %@", value, fixed))
-                    }
-                    if let value = before.album,
-                       let fixed = MojibakeRepair.repaired(value) {
-                        edits.album = fixed
-                        changes.append(Lf("专辑：%@ → %@", value, fixed))
-                    }
-                    if capabilities.canWriteAlbumArtist,
-                       let value = before.albumArtist,
-                       let fixed = MojibakeRepair.repaired(value) {
-                        edits.albumArtist = fixed
-                        changes.append(Lf("专辑歌手：%@ → %@", value, fixed))
-                    }
-                    guard !changes.isEmpty else { continue }
-                    found.append(
-                        MojibakeRepairCandidate(track: track, fields: edits, changes: changes)
-                    )
-                }
-                return found
-            }.value
-            fileWorkProgress = nil
-
-            guard !candidates.isEmpty else {
-                statusMessage = L("没有检测到可修复的乱码标签。")
-                return
-            }
-
-            let alert = NSAlert()
-            alert.messageText = Lf("修复 %d 首歌曲的乱码标签？", candidates.count)
-            let preview = candidates.prefix(5).flatMap { candidate in
-                candidate.changes.map { "《\(candidate.track.title)》\($0)" }
-            }
-            var detail = preview.joined(separator: "\n")
-            if candidates.count > 5 {
-                detail += "\n…"
-            }
-            alert.informativeText = detail
-                + L("\n\n只写入支持标签编辑的格式，音频内容不会改变；可撤销。")
-            alert.addButton(withTitle: L("修复"))
-            alert.addButton(withTitle: L("取消"))
-            let response = alert.runModal()
-            NSApp.keyWindow?.makeFirstResponder(nil)
-            guard response == .alertFirstButtonReturn else { return }
-
-            var failures: [String] = []
-            for candidate in candidates {
-                if let error = await applyTagEdit(candidate.fields, to: [candidate.track]) {
-                    failures.append(error)
-                }
-            }
-            statusMessage = failures.isEmpty
-                ? Lf("已修复 %d 首歌曲的乱码标签。", candidates.count)
-                : Lf(
-                    "已尝试修复 %d 首，%d 项失败：%@",
-                    candidates.count,
-                    failures.count,
-                    failures.prefix(2).joined(separator: L("；"))
-                )
-        }
-    }
-
-    /// Keeps the library index in step with the file that was just written so
-    /// the list shows new values without a full rescan.
-    private func updateIndex(for url: URL, fields: TagFields, artworkChanged: Bool) {
-        let standardized = url.standardizedFileURL
-        guard let track = library.index.tracks.first(where: {
-            $0.url.standardizedFileURL == standardized
-        }) else { return }
-
-        var updated = TrackFactory.applying(fields, to: track)
-        // Filename fallbacks live in TrackFactory so an untagged
-        // `Artist - Title.mp3` keeps its scanned artist after an album edit.
-        if artworkChanged {
-            library.setArtwork(
-                fields.artworkBase64.flatMap { Data(base64Encoded: $0) },
-                for: track.id
-            )
-            updated.artworkFileName = library.index.tracks
-                .first(where: { $0.id == track.id })?.artworkFileName
-        }
-        let attributes = try? FileManager.default.attributesOfItem(atPath: standardized.path)
-        if let size = (attributes?[.size] as? NSNumber)?.int64Value {
-            updated.fileSize = size
-        }
-        if let date = attributes?[.modificationDate] as? Date {
-            updated.modifiedAt = date
-        }
-        library.updateTrack(updated)
-    }
-
-    nonisolated private static func nonEmpty(_ value: String) -> String? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    // MARK: - File organizing
-
-    func beginOrganize(trackIDs: [UUID]) {
-        let ids = Set(trackIDs)
-        let targets = visibleTracks.filter { ids.contains($0.id) && !$0.isMissing }
-        guard !targets.isEmpty else {
-            statusMessage = L("没有可整理的歌曲。")
-            return
-        }
-        organizerRequest = OrganizerRequest(tracks: targets)
-    }
-
-    var canUndoOrganize: Bool { organizeUndoCount > 0 }
-
-    /// Executes a previewed plan and points the affected tracks at their new
-    /// URLs. Returns a Chinese error for the sheet, or nil on success.
-    /// `destinationRoot` is added to the imported folders when it was outside
-    /// them, so a later rescan does not mark the moved tracks missing.
-    ///
-    /// The copy/move loop runs in a detached task; cross-volume copies report
-    /// progress instead of freezing the window.
-    func performOrganize(
-        _ items: [OrganizePlanItem],
-        copy: Bool,
-        destinationRoot: URL
-    ) async -> String? {
-        guard !items.isEmpty else { return L("没有需要整理的文件。") }
-        guard fileWorkProgress == nil else { return L("已有文件操作正在进行。") }
-
-        let total = items.count
-        fileWorkProgress = Lf("正在整理 0/%d…", total)
-        let organizer = self.organizer
-        let result: Result<Void, Error> = await Task.detached(priority: .userInitiated) {
-            do {
-                try organizer.apply(items, copy: copy) { completed, count in
-                    DispatchQueue.main.async { [weak self] in
-                        guard let self, self.fileWorkProgress != nil else { return }
-                        self.fileWorkProgress = Lf("正在整理 %d/%d…", completed, count)
-                    }
-                }
-                return .success(())
-            } catch {
-                return .failure(error)
-            }
-        }.value
-        fileWorkProgress = nil
-
-        switch result {
-        case .success:
-            applyTrackURLs(for: items)
-            library.ensureFoldersCovering([destinationRoot])
-            organizeUndoCount = organizer.undo.entries.count
-            surfacePersistenceError()
-            statusMessage = copy
-                ? Lf("已复制 %d 个文件。", items.count)
-                : Lf("已移动 %d 个文件，可用「撤销上次整理」恢复。", items.count)
-            return nil
-        case .failure(let error):
-            // A mid-run failure still moved the earlier rows; keep the index
-            // truthful for those before showing the error.
-            if let organizeError = error as? OrganizeError,
-               case let .applyFailed(applied, _) = organizeError,
-               !applied.isEmpty {
-                applyTrackURLs(for: applied)
-                library.ensureFoldersCovering([destinationRoot])
-            }
-            organizeUndoCount = organizer.undo.entries.count
-            surfacePersistenceError()
-            let message = error.localizedDescription
-            statusMessage = message
-            return message
-        }
-    }
-
-    @discardableResult
-    func undoLastOrganize() -> String {
-        guard fileWorkProgress == nil else {
-            let message = L("正在整理，请稍后再撤销。")
-            statusMessage = message
-            return message
-        }
-        let wasCopy = organizer.undo.entries.last?.copy ?? false
-        do {
-            guard let items = try organizer.undoLast() else {
-                let message = L("没有可撤销的整理。")
-                statusMessage = message
-                return message
-            }
-            restoreTrackURLs(for: items)
-            organizeUndoCount = organizer.undo.entries.count
-            let message: String
-            if items.isEmpty {
-                message = wasCopy ? L("没有可删除的副本。") : L("没有可恢复的文件。")
-            } else if wasCopy {
-                message = Lf("已删除 %d 个副本，原文件保留。", items.count)
-            } else {
-                message = Lf("已恢复 %d 个文件到原位置。", items.count)
-            }
-            statusMessage = message
-            return message
-        } catch {
-            organizeUndoCount = organizer.undo.entries.count
-            // A partially failed undo already put some files back. Point those
-            // tracks at their sources now; otherwise the next rescan would
-            // mark them missing and re-add them with new IDs.
-            var message = error.localizedDescription
-            if let organizeError = error as? OrganizeError,
-               case let .undoFailed(restored, _) = organizeError,
-               !restored.isEmpty {
-                restoreTrackURLs(for: restored)
-                message += Lf("（已恢复 %d 个文件，其余保留在目标位置）", restored.count)
-            }
-            statusMessage = message
-            return message
-        }
-    }
-
-    private func applyTrackURLs(for items: [OrganizePlanItem]) {
-        guard !items.isEmpty else { return }
-        library.updateTrackURLs(OrganizeURLMapping.apply(items))
-        refreshFromLibrary()
-    }
-
-    private func restoreTrackURLs(for items: [OrganizePlanItem]) {
-        guard !items.isEmpty else { return }
-        library.updateTrackURLs(OrganizeURLMapping.undo(items))
-        // Restored files normally land back in an imported folder; cover them
-        // anyway so undo never leaves a track unscanned.
-        library.ensureFoldersCovering(
-            items
-                .map { $0.source.deletingLastPathComponent().standardizedFileURL }
-                .filter { $0.path != "/" }
-        )
-        refreshFromLibrary()
     }
 
     // MARK: - Playlists
@@ -927,21 +498,25 @@ final class AppModel: ObservableObject {
 
     private func importFoldersAndScan(_ urls: [URL]) async {
         isScanning = true
+        var report = ScanReport.empty
         for url in urls {
-            await library.addFolder(url)
+            let scan = await library.addFolder(url)
+            report = ScanReport(added: report.added + scan.added, removed: report.removed + scan.removed)
         }
         isScanning = false
         refreshFromLibrary()
         prepareLibraryFormats()
+        showScanReport(report)
     }
 
     func rescan() async {
         guard !isScanning else { return }
         isScanning = true
-        await library.rescan()
+        let report = await library.rescan()
         isScanning = false
         refreshFromLibrary()
         prepareLibraryFormats()
+        showScanReport(report)
     }
 
     /// Sidebar refresh on a single folder row. Uses the folder-scoped core
@@ -949,10 +524,27 @@ final class AppModel: ObservableObject {
     func rescanFolder(_ folder: URL) async {
         guard !isScanning else { return }
         isScanning = true
-        await library.rescan(folder: folder)
+        let report = await library.rescan(folder: folder)
         isScanning = false
         refreshFromLibrary()
         prepareLibraryFormats()
+        showScanReport(report)
+    }
+
+    /// Summarizes a scan in the status banner so the user always sees what
+    /// changed, even when a scan adds or removes nothing. The message fades
+    /// away on its own so a finished scan never leaves a stale banner up.
+    private func showScanReport(_ report: ScanReport) {
+        let summary = "\(Lf("新增 %d 首", report.added))，\(Lf("移除 %d 首", report.removed))"
+        statusMessage = summary
+        // Only clear this exact message: a new status set within the window
+        // (playback error, import, …) must not be wiped by the stale timer.
+        scanReportDismissTask?.cancel()
+        scanReportDismissTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled, self?.statusMessage == summary else { return }
+            self?.statusMessage = nil
+        }
     }
 
     private func refreshFromLibrary() {
@@ -968,12 +560,9 @@ final class AppModel: ObservableObject {
         guard let id = currentTrack?.id else { return }
         if let updated = tracks.first(where: { $0.id == id }) {
             currentTrack = updated
-            if updated.isMissing {
-                engine.pause()
-                restoredPosition = 0
-                statusMessage = Lf("《%@》文件缺失，仍保留在列表中。", updated.title)
-            }
         } else {
+            // Vanished files are removed by the scan itself; if the current
+            // track dropped out, stop playback instead of pointing at a stub.
             currentTrack = nil
             restoredPosition = 0
             engine.pause()
@@ -982,9 +571,17 @@ final class AppModel: ObservableObject {
 
     // MARK: - Playback
 
-    func play(trackID: UUID) {
-        guard let index = visibleTracks.firstIndex(where: { $0.id == trackID }) else { return }
-        let track = visibleTracks[index]
+    /// What a row tap or a group's play button turns into the queue. On the
+    /// album/artist browser that is the grouped order, so 下一首 walks album by
+    /// album instead of the flat sort.
+    private var playbackSource: [Track] {
+        isGroupedSelection ? libraryGroups.flatMap(\.tracks) : visibleTracks
+    }
+
+    func play(trackID: UUID, source: [Track]? = nil) {
+        let queueSource = source ?? playbackSource
+        guard let index = queueSource.firstIndex(where: { $0.id == trackID }) else { return }
+        let track = queueSource[index]
 
         if currentTrack?.id == track.id {
             togglePlayPause()
@@ -996,7 +593,7 @@ final class AppModel: ObservableObject {
         }
 
         var updated = queue
-        updated.replace(with: visibleTracks.map(\.id), startAt: index)
+        updated.replace(with: queueSource.map(\.id), startAt: index)
         queue = updated
         _ = playFromQueue(track.id)
         savePlaybackState()
@@ -1027,7 +624,7 @@ final class AppModel: ObservableObject {
             return
         }
 
-        if let first = visibleTracks.first {
+        if let first = playbackSource.first {
             play(trackID: first.id)
         } else {
             statusMessage = L("音乐库是空的，先导入一个文件夹。")
@@ -1860,6 +1457,20 @@ final class AppModel: ObservableObject {
         removeTracksFromLibrary([track.id])
     }
 
+    /// Settings → removed file 「重新添加」: forget the removal and scan the
+    /// file back in. Only the index changes; the file on disk is untouched.
+    func reAddRemovedTrack(_ track: Track) async {
+        guard !isScanning else {
+            statusMessage = L("正在扫描音乐库，请稍后再导入。")
+            return
+        }
+        isScanning = true
+        await library.reAddRemovedTrack(track)
+        isScanning = false
+        refreshFromLibrary()
+        prepareLibraryFormats()
+    }
+
     private func saveSettingsAndNotify() {
         library.saveSettings()
         surfacePersistenceError()
@@ -1905,10 +1516,6 @@ final class AppModel: ObservableObject {
         guard let id = settings.lastTrackID,
               let track = tracks.first(where: { $0.id == id }) else { return }
         currentTrack = track
-        guard !track.isMissing else {
-            statusMessage = Lf("《%@》文件缺失，仍保留在列表中。", track.title)
-            return
-        }
         // Deliberately do not load the file yet: the audio engine is created on
         // first play, so launch stays fast and never autoplays.
         restoredPosition = max(0, settings.lastPosition)
@@ -2040,12 +1647,10 @@ final class AppModel: ObservableObject {
             return true
         }
         // Space/arrows belong to the main window only. Any presented sheet
-        // (settings, tag editor, organizer) owns the keyboard, and panels such
-        // as the lyrics overlay must not receive playback shortcuts.
+        // (settings, lyrics import) owns the keyboard, and panels such as the
+        // lyrics overlay must not receive playback shortcuts.
         guard NSApp.modalWindow == nil,
               !isSettingsPresented,
-              tagEditorRequest == nil,
-              organizerRequest == nil,
               isMainWindowKey,
               !isSearchFocused,
               !isEditingText else { return false }

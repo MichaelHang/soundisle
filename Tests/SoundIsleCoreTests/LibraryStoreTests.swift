@@ -374,13 +374,13 @@ final class LibraryStoreTests: XCTestCase {
         XCTAssertEqual(store.index.tracks.count, 2)
 
         // The other folder's file vanished, but refreshing this folder must
-        // not inspect (or mark missing) anything outside its scope.
+        // not inspect (or remove) anything outside its scope.
         try fm.removeItem(at: otherRoot.appendingPathComponent("乙.mp3"))
         await store.rescan(folder: libraryRoot, reader: reader)
-        XCTAssertFalse(try track(named: "乙", in: store).isMissing)
+        XCTAssertEqual(store.index.tracks.count, 2)
 
         await store.rescan(folder: otherRoot, reader: reader)
-        XCTAssertTrue(try track(named: "乙", in: store).isMissing)
+        XCTAssertEqual(store.index.tracks.map(\.id), [try track(named: "甲", in: store).id])
     }
 
     @MainActor
@@ -424,7 +424,7 @@ final class LibraryStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testRescanMarksMissingTracksAndKeepsPlaylist() async throws {
+    func testRescanAutoRemovesVanishedTracksAndPrunesPlaylist() async throws {
         let keepURL = try makeFile("保留.mp3")
         let goneURL = try makeFile("消失.mp3")
         let reader = StubReader()
@@ -454,17 +454,16 @@ final class LibraryStoreTests: XCTestCase {
         try fm.removeItem(at: goneURL)
         await store.rescan(reader: reader)
 
-        XCTAssertEqual(store.index.tracks.count, 2)
-        let missing = try track(named: "消失", in: store)
-        XCTAssertEqual(missing.id, goneID)
-        XCTAssertTrue(missing.isMissing)
-        XCTAssertEqual(store.missingTracks, [missing])
+        // The vanished file is gone for good: no missing stub, and the playlist
+        // entry is pruned with it.
+        XCTAssertEqual(store.index.tracks.count, 1)
+        XCTAssertTrue(store.missingTracks.isEmpty)
+        XCTAssertEqual(store.index.tracks.map(\.id), [keepID])
         XCTAssertFalse(try track(named: "保留", in: store).isMissing)
         XCTAssertEqual(try XCTUnwrap(store.index.tracks.first { $0.id == keepID }).url.standardizedFileURL,
                        keepURL.standardizedFileURL)
-        // Missing tracks stay in playlists so the user can relocate them.
-        XCTAssertEqual(store.playlists, [playlist])
-        XCTAssertEqual(IndexStore(directory: dataDir).loadPlaylists(), [playlist])
+        XCTAssertEqual(store.playlists.first?.trackIDs, [keepID])
+        XCTAssertEqual(IndexStore(directory: dataDir).loadPlaylists().first?.trackIDs, [keepID])
     }
 
     @MainActor
@@ -485,28 +484,78 @@ final class LibraryStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testRemoveMissingTracksPrunesPlaylists() async throws {
-        try makeFile("留下.mp3")
-        let goneURL = try makeFile("移除.mp3")
+    func testRemoveTrackFromLibraryIgnoresItOnRescanAndReAdds() async throws {
+        let url = try makeFile("移除.mp3")
         let reader = StubReader()
-        reader.setMetadata([
-            "留下.mp3": AudioMetadata(title: "留下", duration: 10),
-            "移除.mp3": AudioMetadata(title: "移除", duration: 20),
-        ])
+        reader.setMetadata(["移除.mp3": AudioMetadata(title: "移除", duration: 20)])
         let store = LibraryStore(directory: dataDir)
         await store.addFolder(libraryRoot, reader: reader)
-        let keepID = try track(named: "留下", in: store).id
-        let goneID = try track(named: "移除", in: store).id
-        store.playlists = [Playlist(name: "收藏", trackIDs: [keepID, goneID])]
+        let removed = try track(named: "移除", in: store)
 
-        try fm.removeItem(at: goneURL)
+        // 从音乐库移除: the file stays on disk, the row is remembered.
+        store.removeTracks(ids: [removed.id])
+        XCTAssertTrue(store.index.tracks.isEmpty)
+        XCTAssertEqual(store.removedTracks.map(\.id), [removed.id])
+        XCTAssertTrue(fm.fileExists(atPath: url.path))
+
+        // A rescan must NOT re-add the removed file.
         await store.rescan(reader: reader)
-        store.removeMissingTracks()
+        XCTAssertTrue(store.index.tracks.isEmpty)
+        XCTAssertEqual(store.removedTracks.map(\.id), [removed.id])
 
-        XCTAssertEqual(store.index.tracks.map(\.id), [keepID])
-        XCTAssertEqual(store.playlists.first?.trackIDs, [keepID])
-        XCTAssertEqual(persistedIndex().tracks.map(\.id), [keepID])
-        XCTAssertEqual(IndexStore(directory: dataDir).loadPlaylists().first?.trackIDs, [keepID])
+        // Re-adding brings the row back and clears the removal record.
+        await store.reAddRemovedTrack(removed, reader: reader)
+        XCTAssertEqual(store.index.tracks.map(\.id), [removed.id])
+        XCTAssertTrue(store.removedTracks.isEmpty)
+        XCTAssertEqual(persistedIndex().removedTracks, [])
+    }
+
+    @MainActor
+    func testRemovedTrackPrunedWhenItsFileIsDeletedFromDisk() async throws {
+        let url = try makeFile("先移除.mp3")
+        let reader = StubReader()
+        reader.setMetadata(["先移除.mp3": AudioMetadata(title: "先移除", duration: 10)])
+        let store = LibraryStore(directory: dataDir)
+        await store.addFolder(libraryRoot, reader: reader)
+        let removed = try track(named: "先移除", in: store)
+
+        store.removeTracks(ids: [removed.id])
+        XCTAssertEqual(store.removedTracks.map(\.id), [removed.id])
+
+        // The user deletes the file from disk: it can no longer be re-added,
+        // so the next scan forgets the removal record.
+        try fm.removeItem(at: url)
+        await store.rescan(reader: reader)
+
+        XCTAssertTrue(store.removedTracks.isEmpty)
+        XCTAssertEqual(persistedIndex().removedTracks, [])
+    }
+
+    @MainActor
+    func testRemovedTracksSurviveIndexRoundTrip() throws {
+        let track = sampleTrack()
+        let index = LibraryIndex(
+            tracks: [],
+            folders: [libraryRoot],
+            removedTracks: [track]
+        )
+        try IndexStore(directory: dataDir).saveIndex(index)
+
+        let reloaded = IndexStore(directory: dataDir).loadIndex()
+        XCTAssertEqual(reloaded.removedTracks, [track])
+    }
+
+    @MainActor
+    func testIndexWithoutRemovedPathsDecodesToEmpty() throws {
+        let legacy = """
+        {"tracks": [], "folders": ["\(libraryRoot.standardizedFileURL.absoluteString)"]}
+        """
+        try fm.createDirectory(at: dataDir, withIntermediateDirectories: true)
+        try Data(legacy.utf8).write(to: dataDir.appendingPathComponent("library.json"))
+
+        let reloaded = IndexStore(directory: dataDir).loadIndex()
+        XCTAssertTrue(reloaded.removedTracks.isEmpty)
+        XCTAssertEqual(reloaded.folders.map(\.standardizedFileURL), [libraryRoot.standardizedFileURL])
     }
 
     @MainActor
@@ -738,7 +787,7 @@ final class LibraryStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testRescanLeavesMissingRowWhenRenameMatchIsAmbiguous() async throws {
+    func testRescanRemovesVanishedRowWhenRenameMatchIsAmbiguous() async throws {
         let oldURL = try makeFile("原名.mp3", bytes: 40)
         let mtime = try XCTUnwrap(
             fm.attributesOfItem(atPath: oldURL.path)[.modificationDate] as? Date
@@ -759,10 +808,11 @@ final class LibraryStoreTests: XCTestCase {
         ])
         await store.rescan(reader: reader)
 
-        XCTAssertEqual(store.index.tracks.count, 3)
-        let original = try track(named: "原名", in: store)
-        XCTAssertTrue(original.isMissing)
-        XCTAssertEqual(store.missingTracks.map(\.id), [original.id])
+        // No unique fingerprint match: the vanished row is removed outright and
+        // both candidates become fresh tracks.
+        XCTAssertEqual(store.index.tracks.count, 2)
+        XCTAssertTrue(store.missingTracks.isEmpty)
+        XCTAssertNil(store.index.tracks.first { $0.title == "原名" })
     }
 
     // MARK: - Remove from library
@@ -784,5 +834,7 @@ final class LibraryStoreTests: XCTestCase {
         XCTAssertTrue(fm.fileExists(atPath: url.path))
         XCTAssertTrue(persistedIndex().tracks.isEmpty)
         XCTAssertEqual(IndexStore(directory: dataDir).loadPlaylists().first?.trackIDs, [])
+        // The removal is remembered so the next rescan does not re-add it.
+        XCTAssertEqual(persistedIndex().removedTracks.map(\.id), [id])
     }
 }

@@ -2,16 +2,12 @@ import AppKit
 import SoundIsleCore
 import SwiftUI
 
-/// Settings shell. Cache/FFmpeg and tag-undo controls arrived in tasks 11-13;
-/// task 14 fills the lyrics and appearance groups and shows missing/unreadable
+/// Settings shell: cache/FFmpeg, lyrics, appearance, and missing/unreadable
 /// files collected by the scanner.
 struct SettingsView: View {
     @ObservedObject var model: AppModel
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
-    /// Undo/clear feedback stays visible inside this sheet instead of only in
-    /// the track list behind it.
-    @State private var notice: String?
     @State private var folderNotice: String?
     @State private var cacheNotice: String?
     /// Identifies the sheet window so clicks inside it (and in nested
@@ -54,7 +50,6 @@ struct SettingsView: View {
 
             ScrollView {
                 VStack(spacing: 10) {
-                    tagEditingSection
                     missingFilesSection
                     cacheSection
                     lyricsSection
@@ -88,39 +83,6 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Tag editing
-
-    private var tagEditingSection: some View {
-        sectionCard(icon: Icons.settingsTags, title: L("标签编辑")) {
-            Text(L("每次保存都会记录修改前后的标签，最多保留 50 条。"))
-                .font(.system(size: 11))
-                .foregroundColor(palette.mutedText(0.5))
-            HStack(spacing: 10) {
-                Button(L("撤销最近一次标签编辑")) {
-                    notice = model.undoLastTagEdit()
-                }
-                .disabled(!model.canUndoTagEdit || model.fileWorkProgress != nil)
-
-                Button(L("清空编辑撤销记录")) {
-                    if confirmClearUndo() {
-                        notice = model.clearTagUndoHistory()
-                    }
-                }
-                .disabled(model.tagUndoCount == 0 || model.fileWorkProgress != nil)
-
-                Text(Lf("%d 条记录", model.tagUndoCount))
-                    .font(.system(size: 10.5))
-                    .foregroundColor(palette.mutedText(0.4))
-            }
-            if let notice {
-                Text(notice)
-                    .font(.system(size: 10.5))
-                    .foregroundColor(palette.accentLight)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
     // MARK: - Missing and unreadable files
 
     /// Folder management lives in the sidebar; this card only surfaces files
@@ -128,8 +90,9 @@ struct SettingsView: View {
     @ViewBuilder
     private var missingFilesSection: some View {
         let missing = model.library.missingTracks
+        let removed = model.library.removedTracks
         let unreadable = model.library.unreadableURLs
-        if !missing.isEmpty || !unreadable.isEmpty || folderNotice != nil {
+        if !missing.isEmpty || !removed.isEmpty || !unreadable.isEmpty || folderNotice != nil {
             sectionCard(icon: Icons.settingsFolders, title: L("文件状态")) {
                 if !missing.isEmpty {
                     HStack(spacing: 8) {
@@ -161,6 +124,33 @@ struct SettingsView: View {
                             }
                             Button(L("移除")) {
                                 folderNotice = model.removeMissingTrack(track)
+                            }
+                        }
+                        .font(.system(size: 10.5))
+                    }
+                }
+
+                if !removed.isEmpty {
+                    Divider().overlay(palette.hairline)
+                    Text(Lf("已从音乐库移除 %d 首", removed.count))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(palette.mutedText(0.55))
+                    ForEach(removed) { track in
+                        HStack(spacing: 8) {
+                            Text("\(track.title) — \(track.url.lastPathComponent)")
+                                .font(.system(size: 10.5))
+                                .foregroundColor(palette.mutedText(0.45))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .help(track.url.path)
+                            Spacer(minLength: 6)
+                            Button(L("重新添加")) {
+                                folderNotice = nil
+                                Task { await model.reAddRemovedTrack(track) }
+                            }
+                            .help(track.url.path)
+                            Button(L("在 Finder 中显示")) {
+                                NSWorkspace.shared.activateFileViewerSelecting([track.url])
                             }
                         }
                         .font(.system(size: 10.5))
@@ -645,17 +635,6 @@ struct SettingsView: View {
         NSApp.keyWindow?.makeFirstResponder(nil)
         guard response == .OK, let url = panel.url else { return }
         folderNotice = model.relocateTrack(track, to: url)
-    }
-
-    private func confirmClearUndo() -> Bool {
-        let alert = NSAlert()
-        alert.messageText = L("清空编辑撤销记录？")
-        alert.informativeText = L("清空后无法再撤销之前保存的标签修改，音频文件本身不受影响。")
-        alert.addButton(withTitle: L("清空"))
-        alert.addButton(withTitle: L("取消"))
-        let response = alert.runModal()
-        NSApp.keyWindow?.makeFirstResponder(nil)
-        return response == .alertFirstButtonReturn
     }
 }
 

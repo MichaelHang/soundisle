@@ -19,14 +19,6 @@ case "${1:-}" in
         ;;
 esac
 
-if [[ "$UNIVERSAL" -eq 1 ]]; then
-    TAGLIB_ARCHS="$(lipo -archs Vendor/taglib/lib/libtag.a 2>/dev/null || true)"
-    if [[ "$TAGLIB_ARCHS" != *x86_64* || "$TAGLIB_ARCHS" != *arm64* ]]; then
-        echo "错误：通用构建需要通用版 TagLib，请先运行 bash Scripts/build-taglib.sh" >&2
-        exit 1
-    fi
-fi
-
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
 

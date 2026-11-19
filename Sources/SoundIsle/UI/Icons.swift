@@ -44,6 +44,8 @@ enum Icons {
     static var folder: Image { symbol("folder", size: 12) }
     static var playlist: Image { symbol("music.note.list", size: 12) }
     static var recent: Image { symbol("clock", size: 12) }
+    static var album: Image { symbol("rectangle.stack", size: 12) }
+    static var artist: Image { symbol("music.mic", size: 12) }
     static var plus: Image { symbol("plus", size: 11, weight: .semibold) }
 
     // Chrome
@@ -63,5 +65,4 @@ enum Icons {
     static var settingsCache: Image { symbol("internaldrive", size: 18) }
     static var settingsLyrics: Image { symbol("text.alignleft", size: 18) }
     static var settingsAppearance: Image { symbol("paintpalette", size: 18) }
-    static var settingsTags: Image { symbol("tag", size: 18) }
 }
