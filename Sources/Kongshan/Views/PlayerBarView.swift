@@ -195,6 +195,43 @@ struct PlayerBarView: View {
             }
             .help(L("切换到迷你窗口"))
             .accessibilityLabel(L("切换到迷你窗口"))
+
+            // The now-playing track's 添加到播放列表, as a native menu.
+            Menu {
+                Button(L("新建播放列表…")) {
+                    if let track = model.currentTrack {
+                        model.createPlaylistFromPrompt(adding: [track.id])
+                    }
+                }
+                if !model.playlists.playlists.isEmpty, let track = model.currentTrack {
+                    Divider()
+                    ForEach(model.playlists.playlists) { playlist in
+                        // A ✓ marks playlists this song is already in, so
+                        // "临时加一下" never adds a duplicate on a guess.
+                        Button {
+                            model.addToPlaylist(playlist.id, trackIDs: [track.id])
+                        } label: {
+                            HStack(spacing: 6) {
+                                Text(playlist.name)
+                                if playlist.trackIDs.contains(track.id) {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 10, weight: .semibold))
+                                }
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Icons.symbol("music.note.list", size: 16)
+                    .foregroundColor(theme.text.opacity(0.7))
+                    .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .disabled(model.currentTrack == nil)
+            .help(L("添加到播放列表"))
+            .accessibilityLabel(L("添加到播放列表"))
         }
     }
 }
@@ -436,9 +473,11 @@ private struct PlayerIconButton: View {
 
     var body: some View {
         Button(action: action) {
+            // Neutral icons, like Music's toolbar: white-on-dark / dark-on-light.
+            // Accent stays reserved for the play/pause fill and active states.
             icon
                 .foregroundColor(
-                    isActive ? theme.accent : (isHovering ? theme.accent : theme.accent.opacity(0.82))
+                    isActive ? theme.accent : (isHovering ? theme.text : theme.text.opacity(0.82))
                 )
                 .frame(width: size, height: size)
                 .background {
@@ -476,7 +515,7 @@ private struct VolumeButton: View {
             isPresented.toggle()
         } label: {
             Icons.volume(muted: isMuted, low: volume < 0.34)
-                .foregroundColor(isHovering || isPresented ? theme.accent : theme.accent.opacity(0.82))
+                .foregroundColor(isHovering || isPresented ? theme.text : theme.text.opacity(0.82))
                 .frame(width: 30, height: 30)
                 .background(
                     isHovering || isPresented ? theme.raisedFill : Color.clear,

@@ -76,12 +76,4 @@ final class TrackQueryTests: XCTestCase {
         XCTAssertEqual(result.map(\.title), ["Charlie", "Bravo", "Alpha"])
     }
 
-    func testSortByDateAddedDescending() {
-        var old = mother
-        old.modifiedAt = Date(timeIntervalSince1970: 1_000)
-        var recent = motherland
-        recent.modifiedAt = Date(timeIntervalSince1970: 2_000)
-        let result = TrackQuery.apply([old, recent], query: "", sort: .dateAdded, ascending: false)
-        XCTAssertEqual(result.map(\.title), ["祖国", "母亲"])
-    }
 }

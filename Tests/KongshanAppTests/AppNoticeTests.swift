@@ -1,5 +1,5 @@
 import XCTest
-@testable import SoundIsle
+@testable import Kongshan
 
 final class AppNoticeTests: XCTestCase {
     /// Failures wait for the user; ordinary reports get a few seconds. This is

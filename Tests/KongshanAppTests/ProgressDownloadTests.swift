@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import SoundIsle
+@testable import Kongshan
 
 final class ProgressDownloadTests: XCTestCase {
     /// The pill's fill is only worth drawing if the numbers arrive: this

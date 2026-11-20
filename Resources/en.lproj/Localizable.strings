@@ -1,6 +1,6 @@
 /* SoundIsle English localization. Keys are the Chinese source strings. */
 
-"声屿" = "SoundIsle";
+"空山" = "Kongshan";
 "暂停（空格）" = "Pause (Space)";
 "播放（空格）" = "Play (Space)";
 "上一首（⌘←）" = "Previous (⌘←)";
@@ -17,7 +17,7 @@
 "更换歌词…" = "Change Lyrics…";
 "恢复自动匹配" = "Restore Automatic Match";
 "重试匹配" = "Retry Match";
-"退出声屿" = "Quit SoundIsle";
+"退出空山" = "Quit Kongshan";
 "未在播放" = "Not Playing";
 "%@（文件缺失）" = "%@ (File Missing)";
 "搜索" = "Search";
@@ -151,7 +151,7 @@
 "展开主窗口" = "Open Main Window";
 "选择一首歌曲" = "Select a Song";
 "文件缺失" = "File Missing";
-"未知歌手" = "Unknown Artist";
+"未知艺人" = "Unknown Artist";
 "未知专辑" = "Unknown Album";
 "播放全部" = "Play All";
 "本地歌词" = "Local Lyrics";
@@ -236,7 +236,7 @@
 "语言" = "Language";
 "跟随系统" = "Follow System";
 "中文" = "中文";
-"更改语言后需要重启声屿。" = "Changing the language requires restarting SoundIsle.";
+"更改语言后需要重启空山。" = "Changing the language requires restarting Kongshan.";
 "主题皮肤" = "Theme";
 "明暗模式" = "Appearance Mode";
 "自定义强调色" = "Custom Accent";
@@ -272,7 +272,7 @@
 "移除文件夹（不删除文件）" = "Remove Folder (Keeps Files)";
 "正在批量编辑 %d 首歌曲。留空的字段不会被修改。" = "Editing %d songs. Fields left blank will not be changed.";
 "标题" = "Title";
-"歌手" = "Artist";
+"艺人" = "Artist";
 "专辑" = "Album";
 "专辑歌手" = "Album Artist";
 "年份" = "Year";
@@ -310,10 +310,10 @@
 "%d 首 · %@" = "%d songs · %@";
 "%d 张专辑" = "%d albums";
 "%d 张专辑 · %d 首 · %@" = "%d albums · %d songs · %@";
-"%d 位歌手 · %d 首 · %@" = "%d artists · %d songs · %@";
+"%d 位艺人 · %d 首 · %@" = "%d artists · %d songs · %@";
 "群星" = "Various Artists";
 "返回专辑列表" = "Back to Albums";
-"返回歌手列表" = "Back to Artists";
+"返回艺人列表" = "Back to Artists";
 "关闭" = "Close";
 "复制 brew install ffmpeg" = "Copy brew install ffmpeg";
 "选择 FFmpeg…" = "Choose FFmpeg…";
@@ -397,7 +397,7 @@
 "发现新版本 %@" = "Version %@ is available";
 "发现新版本 %@…" = "Version %@ available…";
 "正在下载更新…" = "Downloading the update…";
-"正在安装，声屿随后会自动重启" = "Installing — SoundIsle restarts itself in a moment";
+"正在安装，空山随后会自动重启" = "Installing — Kongshan restarts itself in a moment";
 "无法检查更新，请稍后再试" = "Couldn't check for updates. Try again later.";
 "更新包校验失败，已取消安装" = "The download didn't match its checksum, so the install was cancelled.";
 "无法解压更新包" = "Couldn't unpack the update.";
@@ -409,7 +409,7 @@
 "忽略此版本" = "Skip this version";
 "现在重启" = "Restart now";
 "重启以更新…" = "Restart to update…";
-"退出声屿时会自动更新" = "The update applies when you quit SoundIsle";
+"退出空山时会自动更新" = "The update applies when you quit Kongshan";
 "重启以更新 %@" = "Restart to update %@";
 "%@ 可用" = "%@ available";
 "%@ 下载中" = "Downloading %@";
@@ -428,7 +428,9 @@
 "正在播放" = "Now playing";
 "已暂停" = "Paused";
 "打开专辑详情" = "Open album details";
-"打开歌手详情" = "Open artist details";
+"打开艺人详情" = "Open artist details";
 "控制" = "Control";
 "从音乐库移除《%@》" = "Remove “%@” from Library";
 "从音乐库移除“%@”的全部歌曲" = "Remove All Songs by “%@”";
+"显示其余 %d 条" = "Show %d More";
+"收起" = "Collapse";

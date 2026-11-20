@@ -1,5 +1,5 @@
 import XCTest
-@testable import SoundIsle
+@testable import Kongshan
 
 final class FFmpegPromptTests: XCTestCase {
     func testStartsHidden() {

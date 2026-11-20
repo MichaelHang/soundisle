@@ -64,7 +64,7 @@ final class LibraryGroupingTests: XCTestCase {
     func testAlbumWithoutArtistsReportsUnknownArtist() {
         let orphan = Track(url: URL(fileURLWithPath: "/tmp/01x.mp3"), title: "X", album: "Red")
         let groups = LibraryGrouping.groups([orphan], by: .album)
-        XCTAssertEqual(groups.first?.artist, L("未知歌手"))
+        XCTAssertEqual(groups.first?.artist, L("未知艺人"))
     }
 
     func testConsistentAlbumArtistTagNamesAMultiArtistAlbum() {
@@ -203,7 +203,7 @@ final class LibraryGroupingTests: XCTestCase {
     func testUnknownArtistSinksToTheBottom() {
         let unknown = Track(url: URL(fileURLWithPath: "/tmp/loose.mp3"), title: "Loose")
         let groups = LibraryGrouping.groups([unknown, english], by: .artist)
-        XCTAssertEqual(groups.last?.name, "未知歌手")
+        XCTAssertEqual(groups.last?.name, "未知艺人")
         XCTAssertEqual(groups.first?.name, "John")
     }
 }

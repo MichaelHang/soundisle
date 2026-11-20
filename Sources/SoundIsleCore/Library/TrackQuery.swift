@@ -5,7 +5,6 @@ public enum TrackSort: String, CaseIterable {
     case artist
     case album
     case duration
-    case dateAdded
 }
 
 /// Search and column sorting for the track list. Pure and synchronous so the
@@ -58,9 +57,6 @@ public enum TrackQuery {
         case .duration:
             if lhs.duration == rhs.duration { return .orderedSame }
             return lhs.duration < rhs.duration ? .orderedAscending : .orderedDescending
-        case .dateAdded:
-            if lhs.modifiedAt == rhs.modifiedAt { return .orderedSame }
-            return lhs.modifiedAt < rhs.modifiedAt ? .orderedAscending : .orderedDescending
         }
     }
 }

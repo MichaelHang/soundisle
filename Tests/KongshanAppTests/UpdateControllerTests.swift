@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import SoundIsle
+@testable import Kongshan
 import SoundIsleCore
 
 /// Intercepts every request so a test can serve a manifest and a release
@@ -64,7 +64,7 @@ final class UpdateControllerTests: XCTestCase {
     /// A real zip with a `.app` inside, so the unpack step is exercised for
     /// real rather than stubbed.
     private static func makeReleaseArchive(in root: URL) throws -> (URL, String) {
-        let app = root.appendingPathComponent("build/声屿.app")
+        let app = root.appendingPathComponent("build/空山.app")
         try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
         try Data("binary".utf8).write(to: app.appendingPathComponent("SoundIsle"))
         let zip = root.appendingPathComponent("release.zip")
@@ -118,14 +118,14 @@ final class UpdateControllerTests: XCTestCase {
             setSkippedVersion: { [unowned self] in self.skipped = $0 },
             service: service,
             downloadConfiguration: configuration(),
-            bundleURL: support.appendingPathComponent("installed/声屿.app")
+            bundleURL: support.appendingPathComponent("installed/空山.app")
         )
         controller.notify = { [unowned self] in self.notices.append($0) }
         return controller
     }
 
     private func stagedApp(version: String) -> URL {
-        support.appendingPathComponent("updates/\(version)/声屿.app")
+        support.appendingPathComponent("updates/\(version)/空山.app")
     }
 
     // MARK: - Automatic
@@ -147,7 +147,7 @@ final class UpdateControllerTests: XCTestCase {
     func testAutomaticModeNeverTouchesTheInstalledApp() async throws {
         serveManifest(version: "9.9.9")
         let controller = makeController()
-        let installed = support.appendingPathComponent("installed/声屿.app")
+        let installed = support.appendingPathComponent("installed/空山.app")
         try FileManager.default.createDirectory(at: installed, withIntermediateDirectories: true)
 
         await controller.check()
@@ -349,7 +349,7 @@ final class UpdateApplyTests: XCTestCase {
 
         // A staged marker plus the bundle it points at, as `downloadAndStage`
         // would leave them.
-        let app = support.appendingPathComponent("updates/9.9.9/声屿.app")
+        let app = support.appendingPathComponent("updates/9.9.9/空山.app")
         try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
         let marker = ["version": "9.9.9", "path": app.path]
         try JSONSerialization.data(withJSONObject: marker)
@@ -361,7 +361,7 @@ final class UpdateApplyTests: XCTestCase {
             modeProvider: { "notify" },
             skippedVersion: { nil },
             setSkippedVersion: { _ in },
-            bundleURL: support.appendingPathComponent("installed/声屿.app")
+            bundleURL: support.appendingPathComponent("installed/空山.app")
         )
         controller.swapScheduler = { [unowned self] _, _, _, _, relaunch in
             self.swaps.append(relaunch)

@@ -156,13 +156,13 @@ final class UpdateInstallerTests: XCTestCase {
 
     func testSwapScriptQuotesPathsAndWaitsForTheProcess() {
         let script = UpdateInstaller.swapScript(
-            newApp: URL(fileURLWithPath: "/tmp/it's here/声屿.app"),
-            target: URL(fileURLWithPath: "/Applications/声屿.app"),
+            newApp: URL(fileURLWithPath: "/tmp/it's here/空山.app"),
+            target: URL(fileURLWithPath: "/Applications/空山.app"),
             pid: 4242,
             staging: URL(fileURLWithPath: "/tmp/staging dir")
         )
-        XCTAssertTrue(script.contains("target='/Applications/声屿.app'"))
-        XCTAssertTrue(script.contains("new='/tmp/it'\\''s here/声屿.app'"))
+        XCTAssertTrue(script.contains("target='/Applications/空山.app'"))
+        XCTAssertTrue(script.contains("new='/tmp/it'\\''s here/空山.app'"))
         XCTAssertTrue(script.contains("while kill -0 4242 2>/dev/null; do sleep 0.3; done"))
         XCTAssertTrue(script.contains("if ! /usr/bin/ditto \"$new\" \"$target\""))
         XCTAssertTrue(script.contains("/bin/mv \"$target.old\" \"$target\""))
@@ -172,8 +172,8 @@ final class UpdateInstallerTests: XCTestCase {
 
     func testSwapWithoutRelaunchLeavesTheAppClosed() {
         let script = UpdateInstaller.swapScript(
-            newApp: URL(fileURLWithPath: "/tmp/new/声屿.app"),
-            target: URL(fileURLWithPath: "/Applications/声屿.app"),
+            newApp: URL(fileURLWithPath: "/tmp/new/空山.app"),
+            target: URL(fileURLWithPath: "/Applications/空山.app"),
             pid: 1,
             staging: URL(fileURLWithPath: "/tmp/staging"),
             relaunch: false
@@ -187,7 +187,7 @@ final class UpdateInstallerTests: XCTestCase {
     func testUnpackFindsTheAppInsideTheArchive() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("soundisle-unpack-\(UUID().uuidString)")
-        let source = root.appendingPathComponent("source/声屿.app")
+        let source = root.appendingPathComponent("source/空山.app")
         try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
         try Data("binary".utf8).write(to: source.appendingPathComponent("SoundIsle"))
 
@@ -200,7 +200,7 @@ final class UpdateInstallerTests: XCTestCase {
         XCTAssertEqual(zip.terminationStatus, 0)
 
         let unpacked = try UpdateInstaller.unpack(archive, into: root.appendingPathComponent("out"))
-        XCTAssertEqual(unpacked.lastPathComponent, "声屿.app")
+        XCTAssertEqual(unpacked.lastPathComponent, "空山.app")
         defer { try? FileManager.default.removeItem(at: root) }
     }
 }

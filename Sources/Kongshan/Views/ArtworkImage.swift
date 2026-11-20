@@ -23,14 +23,25 @@ struct ArtworkImage: View {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(theme.coverGradient)
             if let image {
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
+                // The Color.clear overlay pattern: the clear square fixes the
+                // layout size (a `.fill` image would otherwise size itself by
+                // its own aspect ratio under an unbounded height proposal —
+                // LazyVGrid cells — and a portrait poster blew up out of its
+                // card, covering the neighbours), while the image overflows
+                // and gets clipped back to that square.
+                Color.clear
+                    .overlay(
+                        Image(nsImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    )
+                    .clipped()
             } else {
                 Icons.coverNote
                     .foregroundColor(Color.white.opacity(0.6))
             }
         }
+        .aspectRatio(1, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .accessibilityHidden(true)
         .task(id: url) { await load() }

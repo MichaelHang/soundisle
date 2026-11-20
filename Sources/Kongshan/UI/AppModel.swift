@@ -9,7 +9,6 @@ import UniformTypeIdentifiers
 /// the list, the title and playback all agree on the current source.
 enum LibrarySelection: Hashable {
     case allMusic
-    case recentlyAdded
     case albums
     case artists
     case folder(URL)
@@ -240,13 +239,31 @@ final class AppModel: ObservableObject {
         saveTimer?.invalidate()
     }
 
-    /// Production wiring: `~/Library/Application Support/SoundIsle/`.
+    /// Production wiring: `~/Library/Application Support/Kongshan/`. On the
+    /// first launch after the 声屿→空山 rename, the old `SoundIsle` directory
+    /// is migrated over wholesale (except rebuildable caches), so playlists,
+    /// settings, covers and the index survive the rename untouched.
     static func production() -> AppModel {
         let manager = FileManager.default
         let base = manager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? manager.homeDirectoryForCurrentUser
                 .appendingPathComponent("Library/Application Support", isDirectory: true)
-        let directory = base.appendingPathComponent("SoundIsle", isDirectory: true)
+        let directory = base.appendingPathComponent("Kongshan", isDirectory: true)
+
+        let legacy = base.appendingPathComponent("SoundIsle", isDirectory: true)
+        if manager.fileExists(atPath: legacy.path),
+           !manager.fileExists(atPath: directory.appendingPathComponent("library.json").path) {
+            try? manager.createDirectory(at: directory, withIntermediateDirectories: true)
+            // Copy everything except what is rebuildable: the transcode cache
+            // can be GB-scale and re-encodes on demand; the updates staging
+            // folder is throwaway download state.
+            let contents = (try? manager.contentsOfDirectory(at: legacy, includingPropertiesForKeys: nil)) ?? []
+            for item in contents
+            where !["transcode", "updates"].contains(item.lastPathComponent) {
+                try? manager.copyItem(at: item, to: directory.appendingPathComponent(item.lastPathComponent))
+            }
+        }
+
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true)
         return AppModel(directory: directory)
     }
@@ -391,7 +408,7 @@ final class AppModel: ObservableObject {
         return searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    /// 专辑/歌手 keep the grouping, so the list view cannot reorder or sort them.
+    /// 专辑/艺人 keep the grouping, so the list view cannot reorder or sort them.
     var isGroupedSelection: Bool {
         switch selection {
         case .albums, .artists: return true
@@ -402,7 +419,7 @@ final class AppModel: ObservableObject {
     var visibleTracks: [Track] {
         let source: [Track]
         switch selection {
-        case .allMusic, .recentlyAdded, .albums, .artists:
+        case .allMusic, .albums, .artists:
             source = tracks
         case .folder(let folder):
             let prefix = folder.standardizedFileURL.path + "/"
@@ -433,7 +450,7 @@ final class AppModel: ObservableObject {
     /// Distinct album names, for the sidebar's 专辑 row.
     var albumCount: Int { Set(tracks.map(\.album)).count }
 
-    /// Distinct artist names, for the sidebar's 歌手 row.
+    /// Distinct artist names, for the sidebar's 艺人 row.
     var artistCount: Int { Set(tracks.map(\.artist)).count }
 
     func select(_ newSelection: LibrarySelection) {
@@ -450,9 +467,6 @@ final class AppModel: ObservableObject {
             }
         }
         switch newSelection {
-        case .recentlyAdded:
-            sort = .dateAdded
-            sortAscending = false
         case .albums:
             sort = .album
             sortAscending = true
@@ -471,7 +485,7 @@ final class AppModel: ObservableObject {
             sortAscending.toggle()
         } else {
             sort = newSort
-            sortAscending = newSort != .dateAdded
+            sortAscending = true
         }
         if isPlaylistSelection {
             playlistSorting = true
@@ -1635,7 +1649,7 @@ final class AppModel: ObservableObject {
     private func showLanguageRestartNotice() {
         let alert = NSAlert()
         alert.messageText = L("语言已更改")
-        alert.informativeText = "重启声屿后生效。\nTakes effect after restarting SoundIsle."
+        alert.informativeText = "重启空山后生效。\nTakes effect after restarting SoundIsle."
         alert.addButton(withTitle: L("确定"))
         presentAlert(alert)
     }

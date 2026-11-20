@@ -12,6 +12,11 @@ struct SettingsView: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var folderNotice: String?
     @State private var cacheNotice: String?
+    // The three 文件状态 groups list 5 rows and expand on demand; a library
+    // with 1000 missing files must not build 3000 buttons in a 560pt sheet.
+    @State private var showAllMissing = false
+    @State private var showAllRemoved = false
+    @State private var showAllUnreadable = false
 
     private var settings: AppSettings { model.library.settings }
 
@@ -65,7 +70,7 @@ struct SettingsView: View {
                             folderNotice = model.removeMissingTracks()
                         }
                     }
-                    ForEach(missing) { track in
+                    ForEach(missing.prefix(showAllMissing ? missing.count : 5)) { track in
                         HStack(spacing: 8) {
                             Text("\(track.title) — \(track.url.lastPathComponent)")
                                 .font(.subheadline)
@@ -89,6 +94,11 @@ struct SettingsView: View {
                         }
                         .font(.subheadline)
                     }
+                    if missing.count > 5 {
+                        expandButton(showAllMissing, count: missing.count - 5) {
+                            showAllMissing.toggle()
+                        }
+                    }
                 }
 
                 if !removed.isEmpty {
@@ -96,7 +106,7 @@ struct SettingsView: View {
                     Text(Lf("已从音乐库移除 %d 首", removed.count))
                         .font(.subheadline.weight(.medium))
                         .foregroundColor(palette.mutedText(0.55))
-                    ForEach(removed) { track in
+                    ForEach(removed.prefix(showAllRemoved ? removed.count : 5)) { track in
                         HStack(spacing: 8) {
                             Text("\(track.title) — \(track.url.lastPathComponent)")
                                 .font(.subheadline)
@@ -116,6 +126,11 @@ struct SettingsView: View {
                         }
                         .font(.subheadline)
                     }
+                    if removed.count > 5 {
+                        expandButton(showAllRemoved, count: removed.count - 5) {
+                            showAllRemoved.toggle()
+                        }
+                    }
                 }
 
                 if !unreadable.isEmpty {
@@ -123,17 +138,17 @@ struct SettingsView: View {
                     Text(Lf("无法读取 %d 个文件", unreadable.count))
                         .font(.subheadline.weight(.medium))
                         .foregroundColor(palette.warning)
-                    ForEach(unreadable.prefix(3), id: \.self) { url in
+                    ForEach(unreadable.prefix(showAllUnreadable ? unreadable.count : 5), id: \.self) { url in
                         Text(url.lastPathComponent)
                             .font(.subheadline)
                             .foregroundColor(palette.mutedText(0.45))
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
-                    if unreadable.count > 3 {
-                        Text(Lf("另有 %d 个…", unreadable.count - 3))
-                            .font(.subheadline)
-                            .foregroundColor(palette.mutedText(0.35))
+                    if unreadable.count > 5 {
+                        expandButton(showAllUnreadable, count: unreadable.count - 5) {
+                            showAllUnreadable.toggle()
+                        }
                     }
                 }
 
@@ -224,7 +239,7 @@ struct SettingsView: View {
                     Spacer(minLength: 0)
                 }
 
-                Text(L("更改语言后需要重启声屿。"))
+                Text(L("更改语言后需要重启空山。"))
                     .font(.subheadline)
                     .foregroundColor(palette.mutedText(0.45))
             }
@@ -300,6 +315,20 @@ struct SettingsView: View {
     }
 
     // MARK: - Pieces
+
+    /// 展开其余 N 条 / 收起, shared by the three 文件状态 groups.
+    private func expandButton(
+        _ expanded: Bool,
+        count: Int,
+        toggle: @escaping () -> Void
+    ) -> some View {
+        Button(expanded ? L("收起") : Lf("显示其余 %d 条", count)) {
+            toggle()
+        }
+        .font(.subheadline)
+        .foregroundColor(palette.accentLight)
+        .buttonStyle(.plain)
+    }
 
     private func sectionCard<Content: View>(
         icon: Image,

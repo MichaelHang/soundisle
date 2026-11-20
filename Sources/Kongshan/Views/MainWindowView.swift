@@ -26,36 +26,41 @@ struct MainWindowView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let contentHeight = max(0, geometry.size.height - 46 - 84)
+            let contentHeight = max(0, geometry.size.height - 38 - 84)
             VStack(spacing: 0) {
-                topBar
+                // Apple-Music structure: the sidebar runs the full window
+                // height (the traffic lights sit on it), and the
+                // search/settings row belongs to the content area only.
                 HStack(alignment: .top, spacing: 0) {
                     SidebarView(model: model)
                         .frame(width: 190)
-                    ZStack {
-                        if model.showsLyricsPage {
-                            NowPlayingLyricsView(model: model)
-                                .transition(.asymmetric(
-                                    insertion: .move(edge: .bottom).combined(with: .opacity),
-                                    removal: .opacity
-                                ))
-                        } else if model.selection == .artists {
-                            ArtistGridView(model: model)
-                        } else if model.selection == .albums {
-                            AlbumGridView(model: model)
-                        } else {
-                            TrackListView(model: model)
-                                .transition(.opacity)
+                    VStack(spacing: 0) {
+                        topBar
+                        ZStack {
+                            if model.showsLyricsPage {
+                                NowPlayingLyricsView(model: model)
+                                    .transition(.asymmetric(
+                                        insertion: .move(edge: .bottom).combined(with: .opacity),
+                                        removal: .opacity
+                                    ))
+                            } else if model.selection == .artists {
+                                ArtistGridView(model: model)
+                            } else if model.selection == .albums {
+                                AlbumGridView(model: model)
+                            } else {
+                                TrackListView(model: model)
+                                    .transition(.opacity)
+                            }
                         }
+                        // A flexible frame alone is not enough: the lyrics page
+                        // reports a smaller ideal height, and the HStack would
+                        // centre it with a large top gap. Give it the row height.
+                        .frame(maxWidth: .infinity)
+                        .frame(height: contentHeight)
+                        .clipped()
                     }
-                    // A flexible frame alone is not enough: the lyrics page
-                    // reports a smaller ideal height, and the HStack would
-                    // centre it with a large top gap. Give it the row height.
-                    .frame(maxWidth: .infinity)
-                    .frame(height: contentHeight)
-                    .clipped()
+                    .frame(height: contentHeight + 38)
                 }
-                .frame(height: contentHeight)
                 PlayerBarView(model: model)
                     .frame(height: 84)
             }
@@ -112,63 +117,52 @@ struct MainWindowView: View {
     private var topBar: some View {
         ZStack {
             WindowDragArea()
-            HStack(spacing: 12) {
-                HStack(spacing: 7) {
-                    NoteIcon(size: 14, color: palette.text.opacity(0.85))
-                    Text(L("声屿"))
-                        .font(.body.weight(.semibold))
-                        .foregroundColor(palette.text.opacity(0.85))
-                }
+            // One row, sitting on the same axis as the traffic lights — the
+            // way Music's toolbar does. No in-window app brand: the dock icon
+            // and the menu bar already say who this is.
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    Spacer(minLength: 12)
 
-                Spacer(minLength: 12)
-
-                HStack(spacing: 6) {
-                    Icons.search
-                        .foregroundColor(palette.mutedText(0.45))
-                    TextField(L("搜索歌曲、歌手、专辑"), text: $model.searchText)
-                        .textFieldStyle(.plain)
-                        .font(.callout)
-                        .foregroundColor(palette.text)
-                        .focused($searchFocused)
-                    // NSSearchField's clear button. Esc in the field does the
-                    // same; this is the pointing-device path.
-                    if !model.searchText.isEmpty {
-                        Button {
-                            model.searchText = ""
-                        } label: {
-                            Icons.symbol("xmark.circle.fill", size: 11)
-                                .foregroundColor(palette.mutedText(0.45))
-                                .frame(width: 14, height: 14)
-                                .contentShape(Rectangle())
+                    HStack(spacing: 6) {
+                        Icons.search
+                            .foregroundColor(palette.mutedText(0.45))
+                        TextField(L("搜索歌曲、艺人、专辑"), text: $model.searchText)
+                            .textFieldStyle(.plain)
+                            .font(.callout)
+                            .foregroundColor(palette.text)
+                            .focused($searchFocused)
+                        // NSSearchField's clear button. Esc in the field does the
+                        // same; this is the pointing-device path.
+                        if !model.searchText.isEmpty {
+                            Button {
+                                model.searchText = ""
+                            } label: {
+                                Icons.symbol("xmark.circle.fill", size: 11)
+                                    .foregroundColor(palette.mutedText(0.45))
+                                    .frame(width: 14, height: 14)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .help(L("清除搜索"))
                         }
-                        .buttonStyle(.plain)
-                        .help(L("清除搜索"))
                     }
+                    .padding(.horizontal, 9)
+                    .frame(width: 220, height: 26)
+                    .background(palette.raisedFill, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .strokeBorder(palette.hairline, lineWidth: 0.5)
+                    )
                 }
-                .padding(.horizontal, 9)
-                .frame(width: 220, height: 26)
-                .background(palette.raisedFill, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .strokeBorder(palette.hairline, lineWidth: 0.5)
-                )
+                .padding(.leading, 16)
+                .padding(.trailing, 16)
+                .frame(height: 28, alignment: .center)
 
-                Button {
-                    model.openSettings()
-                } label: {
-                    Icons.settings
-                        .foregroundColor(palette.text.opacity(0.7))
-                        .frame(width: 26, height: 26)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(L("设置"))
+                Spacer(minLength: 0)
             }
         }
-        // Leave room for the traffic lights of the hidden title bar.
-        .padding(.leading, 70)
-        .padding(.trailing, 16)
-        .frame(height: 46)
+        .frame(height: 38)
         .background(palette.raisedFill.opacity(0.24))
         .overlay(alignment: .bottom) {
             Rectangle()
@@ -342,14 +336,18 @@ private struct WindowConfigurator: NSViewRepresentable {
                 window.backgroundColor = .clear
                 window.hasShadow = true
                 window.minSize = NSSize(width: 900, height: 600)
-                window.setContentSize(NSSize(width: 900, height: 600))
-                // HIG: keep the user's window layout. The 900x600 above is the
-                // first-launch size; afterwards the last frame wins, and only
-                // a brand-new window (no saved frame) gets centred.
-                window.setFrameAutosaveName("MainWindow")
-                if !window.setFrameUsingName("MainWindow") {
+                // HIG: keep the user's window layout. Registering the
+                // autosave name snapshots the CURRENT frame, so it must run
+                // BEFORE applying the first-launch size — otherwise every
+                // launch overwrites the saved frame with 900x600. Only a
+                // brand-new setup (no saved frame yet) gets the default size.
+                let hasSavedFrame = UserDefaults.standard
+                    .object(forKey: "NSWindow Frame MainWindow") != nil
+                if !hasSavedFrame {
+                    window.setContentSize(NSSize(width: 900, height: 600))
                     window.center()
                 }
+                window.setFrameAutosaveName("MainWindow")
                 coordinator.applyAppearance(to: window)
                 // Keep the search field from grabbing first responder at
                 // launch; space and arrow keys belong to playback until

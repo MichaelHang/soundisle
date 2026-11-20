@@ -156,7 +156,7 @@ private struct PlayAllButton: View {
 
 /// The 专辑 page. The grid is the browsing surface; picking a card slides in
 /// the album detail page. Detail state lives here so switching between 专辑
-/// and 歌手 (separate view identities in MainWindowView) always lands on the
+/// and 艺人 (separate view identities in MainWindowView) always lands on the
 /// grid, and the sidebar selection doubles as "back".
 struct AlbumGridView: View {
     @ObservedObject var model: AppModel
@@ -198,7 +198,7 @@ private struct AlbumCardGrid: View {
             } else {
                 ScrollView {
                     LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 148, maximum: 200), spacing: 14)],
+                        columns: [GridItem(.adaptive(minimum: 110, maximum: 148), spacing: 14)],
                         spacing: 20
                     ) {
                         ForEach(model.libraryGroups) { group in
@@ -239,7 +239,7 @@ private struct AlbumCardGrid: View {
 private struct GroupMenuItems: View {
     @ObservedObject var model: AppModel
     let group: TrackGroup
-    /// 差异只在文案与提示：专辑说这张专辑，歌手说整个歌手目录。
+    /// 差异只在文案与提示：专辑说这张专辑，艺人说整个艺人目录。
     let isAlbum: Bool
 
     var body: some View {
@@ -294,7 +294,7 @@ private struct AlbumCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            ArtworkImage(url: artworkURL, size: 200, cornerRadius: 8)
+            ArtworkImage(url: artworkURL, size: 148, cornerRadius: 8)
                 .aspectRatio(1, contentMode: .fit)
                 .shadow(color: .black.opacity(theme.isDark ? 0.35 : 0.12), radius: 7, y: 3)
             Text(group.name)
@@ -494,7 +494,7 @@ private struct AlbumDetailView: View {
 
 // MARK: - Artist grid
 
-/// The 歌手 page, mirroring the album grid with collage cards.
+/// The 艺人 page, mirroring the album grid with collage cards.
 struct ArtistGridView: View {
     @ObservedObject var model: AppModel
     @State private var detail: TrackGroup?
@@ -521,7 +521,7 @@ private struct ArtistCardGrid: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            LibraryGridHeader(model: model, title: L("歌手"), meta: meta)
+            LibraryGridHeader(model: model, title: L("艺人"), meta: meta)
 
             if let message = model.ffmpegPrompt.message {
                 TrackListStatusBanner(model: model, message: message)
@@ -532,7 +532,7 @@ private struct ArtistCardGrid: View {
             } else {
                 ScrollView {
                     LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 148, maximum: 200), spacing: 14)],
+                        columns: [GridItem(.adaptive(minimum: 110, maximum: 148), spacing: 14)],
                         spacing: 20
                     ) {
                         ForEach(model.libraryGroups) { group in
@@ -556,7 +556,7 @@ private struct ArtistCardGrid: View {
     private var meta: String {
         let groups = model.libraryGroups
         let tracks = groups.flatMap { $0.tracks }
-        return Lf("%d 位歌手 · %d 首 · %@", groups.count, tracks.count, gridDurationText(tracks))
+        return Lf("%d 位艺人 · %d 首 · %@", groups.count, tracks.count, gridDurationText(tracks))
     }
 
     /// Covers of the artist's first four distinct albums for the collage.
@@ -584,7 +584,7 @@ private struct ArtistCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            ArtistCollage(urls: artworkURLs, size: 400, cornerRadius: 8)
+            ArtistCollage(urls: artworkURLs, size: 296, cornerRadius: 8)
                 .aspectRatio(1, contentMode: .fit)
                 .shadow(color: .black.opacity(theme.isDark ? 0.35 : 0.12), radius: 7, y: 3)
             Text(group.name)
@@ -611,7 +611,7 @@ private struct ArtistCard: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(group.name)，\(group.detail)")
-        .accessibilityHint(L("打开歌手详情"))
+        .accessibilityHint(L("打开艺人详情"))
         .accessibilityAddTraits(.isButton)
     }
 }
@@ -779,7 +779,7 @@ private struct ArtistDetailView: View {
             }
             .buttonStyle(.plain)
             .onHover { isHoveringBack = $0 }
-            .help(L("返回歌手列表"))
+            .help(L("返回艺人列表"))
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 18)

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Builds build/声屿.app. Pass --universal to produce a binary that runs on both
+# Builds build/空山.app. Pass --universal to produce a binary that runs on both
 # Intel and Apple Silicon Macs.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-APP_NAME="声屿"
-EXECUTABLE="SoundIsle"
+APP_NAME="空山"
+EXECUTABLE="Kongshan"
 APP_BUNDLE="build/$APP_NAME.app"
 UNIVERSAL=0
 

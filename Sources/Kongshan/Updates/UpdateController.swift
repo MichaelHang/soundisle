@@ -371,7 +371,7 @@ final class UpdateController: ObservableObject {
             "version": version.raw,
             "path": updatesDirectory
                 .appendingPathComponent(version.raw, isDirectory: true)
-                .appendingPathComponent("声屿.app")
+                .appendingPathComponent("空山.app")
                 .path
         ]
         try? JSONSerialization.data(withJSONObject: payload).write(to: url)

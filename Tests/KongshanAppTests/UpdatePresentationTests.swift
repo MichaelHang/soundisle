@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import SoundIsle
+@testable import Kongshan
 import SoundIsleCore
 
 /// The surfaces are three views, but what they show is one set of rules.

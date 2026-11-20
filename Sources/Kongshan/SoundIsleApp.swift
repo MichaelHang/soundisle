@@ -6,7 +6,7 @@ struct SoundIsleApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        WindowGroup(L("声屿")) {
+        WindowGroup(L("空山")) {
             MainWindowView(model: appDelegate.model)
         }
         .windowStyle(.hiddenTitleBar)
@@ -18,7 +18,6 @@ struct SoundIsleApp: App {
                 .keyboardShortcut("f", modifiers: .command)
             }
             PlaybackCommands(model: appDelegate.model)
-            LyricsCommands(model: appDelegate.model)
         }
         // The standalone settings window. The 设置…⌘, item in the app menu is
         // provided by the system for this scene.
@@ -26,32 +25,6 @@ struct SoundIsleApp: App {
             SettingsView(model: appDelegate.model)
         }
         .windowResizability(.contentSize)
-    }
-}
-
-/// Mirrors the menu-bar enablement so 恢复自动匹配 and 重试匹配 are not offered
-/// when they cannot do anything.
-@MainActor
-private struct LyricsCommands: Commands {
-    let model: AppModel
-
-    var body: some Commands {
-        CommandMenu(L("歌词")) {
-            Button(L("更换歌词…")) {
-                model.promptImportLyrics()
-            }
-            .disabled(model.currentTrack == nil)
-
-            Button(L("恢复自动匹配")) {
-                model.restoreAutomaticLyrics()
-            }
-            .disabled(!model.hasLyricsOverride)
-
-            Button(L("重试匹配")) {
-                model.retryLyrics()
-            }
-            .disabled(model.currentTrack == nil || model.isResolvingLyrics)
-        }
     }
 }
 

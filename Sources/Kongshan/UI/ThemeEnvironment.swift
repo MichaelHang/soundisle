@@ -37,31 +37,23 @@ struct ThemePalette {
         text.opacity(isDark ? max(base, 0.5) : max(base, 0.62))
     }
 
-    /// The accent is the user's macOS control accent colour; backgrounds are
-    /// neutral greys. There is no app-owned theme colour any more — only
-    /// light/dark remains configurable.
+    /// checkin-swift-style theming: the accent is SwiftUI's `Color.accentColor`
+    /// — the user's macOS control accent, a dynamic colour that follows system
+    /// changes (accent or appearance) on its own. Surfaces are neutral greys.
+    /// `tokens.accentHex` carries the same accent resolved to RGB once, only
+    /// for the on-accent text contrast computation.
     init(tokens: ThemeTokens) {
         self.tokens = tokens
 
-        let accentRGB = ThemeRGB(hex: tokens.accentHex) ?? ThemeRGB(red: 0.40, green: 0.56, blue: 1)
-        let secondaryRGB = accentRGB.blended(
-            with: tokens.isDark ? .white : .black,
-            amount: 0.30
-        )
-
-        let accent = Color(rgb: accentRGB)
-        let secondary = Color(rgb: secondaryRGB)
+        let accent = Color.accentColor
         self.accent = accent
-        self.accentSecondary = secondary
+        self.accentSecondary = accent.opacity(0.65)
+        self.accentLight = accent
         self.accentGradient = LinearGradient(
-            colors: [accent, secondary],
+            colors: [accent, accent.opacity(0.6)],
             startPoint: .leading,
             endPoint: .trailing
         )
-        self.accentLight = Color(rgb: accentRGB.blended(
-            with: tokens.isDark ? .white : .black,
-            amount: tokens.isDark ? 0.55 : 0.28
-        ))
         self.onAccent = Color(hex: tokens.accentTextHex)
         self.text = Color(hex: tokens.isDark ? "#F0F0F2" : "#1D1D1F")
         self.warning = Color(hex: tokens.isDark ? "#FFB766" : "#A65F00")
@@ -71,7 +63,7 @@ struct ThemePalette {
         self.backgroundMiddle = Color(hex: ThemeSkin.backgroundMiddle(isDark: tokens.isDark))
         self.backgroundBottom = Color(hex: ThemeSkin.backgroundBottom(isDark: tokens.isDark))
         self.coverGradient = LinearGradient(
-            colors: [accent, accentLight],
+            colors: [accent.opacity(0.85), accent.opacity(0.45)],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
@@ -80,21 +72,11 @@ struct ThemePalette {
         self.sliderTrack = tokens.isDark ? Color.white.opacity(0.15) : Color.black.opacity(0.13)
     }
 
-    /// Resolves the persisted light/dark setting plus the effective system
-    /// appearance into the neutral skin, tinted by the user's macOS control
-    /// accent colour.
+    /// Resolves the persisted light/dark setting. The accent colour itself is
+    /// the dynamic `Color.accentColor`; it is only resolved to RGB here so
+    /// the on-accent text (black or white) can be picked by contrast.
     static func resolve(mode: ThemeMode, systemIsDark: Bool) -> ThemePalette {
         let isDark = ThemeResolver.isDark(mode: mode, systemIsDark: systemIsDark)
-        return ThemePalette(tokens: ThemeTokens(
-            accentHex: systemAccentHex(isDark: isDark),
-            isDark: isDark
-        ))
-    }
-
-    /// The user's system accent (系统设置 → 外观 → 强调色), resolved under the
-    /// given appearance so a fixed-light or fixed-dark theme still gets the
-    /// right shade.
-    private static func systemAccentHex(isDark: Bool) -> String {
         var rgb: ThemeRGB?
         let appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
         appearance?.performAsCurrentDrawingAppearance {
@@ -106,8 +88,10 @@ struct ThemePalette {
                 )
             }
         }
-        // The system default accent, as a fallback if extraction fails.
-        return rgb?.hexString ?? (isDark ? "#7AA2FF" : "#3E6FE0")
+        return ThemePalette(tokens: ThemeTokens(
+            accentHex: rgb?.hexString ?? (isDark ? "#7AA2FF" : "#3E6FE0"),
+            isDark: isDark
+        ))
     }
 }
 
@@ -168,45 +152,19 @@ struct AppBackground: View {
     @Environment(\.theme) private var theme
 
     var body: some View {
-        ZStack {
-            // One opaque theme gradient for the whole window. The sidebar and
-            // player bar draw only tonal scrims over this, never their own
-            // material, so active/inactive state cannot change the colours.
-            LinearGradient(
-                colors: [
-                    theme.backgroundTop,
-                    theme.backgroundMiddle,
-                    theme.backgroundBottom,
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-
-            // Ambient colour blobs, drawn once and never animated.
-            Circle()
-                .fill(theme.accent.opacity(theme.isDark ? 0.22 : 0.16))
-                .frame(width: 420, height: 420)
-                .blur(radius: 120)
-                .offset(x: -250, y: -210)
-            Circle()
-                .fill(theme.accentSecondary.opacity(theme.isDark ? 0.18 : 0.12))
-                .frame(width: 380, height: 380)
-                .blur(radius: 120)
-                .offset(x: 280, y: 170)
-
-            RadialGradient(
-                colors: [theme.accent.opacity(theme.isDark ? 0.26 : 0.16), .clear],
-                center: UnitPoint(x: 0.12, y: 0.05),
-                startRadius: 0,
-                endRadius: 480
-            )
-            RadialGradient(
-                colors: [theme.accentSecondary.opacity(theme.isDark ? 0.18 : 0.12), .clear],
-                center: UnitPoint(x: 0.88, y: 0.22),
-                startRadius: 0,
-                endRadius: 420
-            )
-        }
+        // One quiet three-stop gradient, no ambient accent blobs. The old
+        // blurred accent circles washed the whole window in the accent hue —
+        // with the system-blue accent everything looked flooded with blue.
+        // The accent now lives only in controls, the way small apps do it.
+        LinearGradient(
+            colors: [
+                theme.backgroundTop,
+                theme.backgroundMiddle,
+                theme.backgroundBottom,
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
         .ignoresSafeArea()
     }
 }

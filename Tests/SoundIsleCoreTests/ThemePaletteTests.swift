@@ -72,7 +72,7 @@ final class AccentContrastTests: XCTestCase {
     }
 
     func testAccentTextIsReadableForKnownAccents() {
-        // The accent is dynamic (the user's control accent), but whatever it
+        // The accent is the user's control accent (dynamic); whatever it
         // resolves to, black-or-white by contrast must stay readable — pin a
         // few plausible accents including the system default blue.
         for hex in ["#3E6FE0", "#7AA2FF", "#C04040", "#40A060", "#808080"] {

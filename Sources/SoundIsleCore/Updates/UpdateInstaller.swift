@@ -115,7 +115,7 @@ public enum UpdateInstaller {
     }
 
     /// Single-quoted, with embedded quotes escaped, so a path with spaces or
-    /// Chinese characters (`/Applications/声屿.app`) survives the shell.
+    /// Chinese characters (`/Applications/空山.app`) survives the shell.
     static func shellQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }

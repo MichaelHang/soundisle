@@ -1,7 +1,12 @@
-# 声屿 · Fork 说明
+# 空山 · Fork 说明
 
-这是 [y8gao/soundisle](https://github.com/y8gao/soundisle)（上游）的个人 fork：
+这是 [y8gao/soundisle](https://github.com/y8gao/soundisle)（上游"声屿 SoundIsle"）的个人 fork：
 [MichaelHang/soundisle](https://github.com/MichaelHang/soundisle)。
+本 fork 已将应用更名为**空山**（取自王维《鹿柴》"空山不见人，但闻人语响"）；
+更名后可执行文件为 `Kongshan`、Bundle ID `com.local.kongshan`、数据目录
+`~/Library/Application Support/Kongshan/`。首次启动会自动把旧 `SoundIsle` 目录的
+索引、歌单、设置、封面与歌词缓存迁移过来（转码缓存与更新暂存除外，均可重建）；
+旧目录保留不动，确认无误后可手动删除。应用图标为弯月与层叠青山的"空山"意象。
 
 根目录的 `README.md` / `README.en.md` 保持上游原貌、不随 fork 维护，功能介绍请看它们；
 **本文件是两份 README 之外唯一需要读的文档**——记录这个 fork 与上游的全部差异。
@@ -14,10 +19,11 @@
 - **在线歌词**：LRCLIB 查询、自定义歌词源、设置里的在线开关全部移除（`LRCLIBClient` 及其测试已删除）。歌词只剩两个来源：歌曲同目录的同名 `.lrc` 文件，和手动导入（本地缓存只存手动导入的覆盖版本）。
 - **歌词外观设置不再重复**：单行/双行、描边、悬停背景不透明度只在歌词悬浮窗的悬停控件里就地调整，设置页没有歌词一节。
 - **主题颜色**：六套配色（`ThemePreset`/`ThemeCatalog`）和自定义强调色**从代码里整体删除**。
-  强调色改为 SwiftUI 的 `Color.accentColor`——即 **macOS 系统强调色**（系统设置 → 外观 → 强调色，
-  改变时实时刷新），面板/背景为中性灰白（`ThemeSkin` 只产出色/深两组中性色）；
+  强调色跟随 **macOS 系统强调色**（系统设置 → 外观 → 强调色，改变时实时刷新），
+  面板/背景为中性灰白（`ThemeSkin` 只产出浅色/深色两组中性色）；
   只有浅色/深色（可跟随系统）一个开关。
 - **列表行样式**：序号/封面二选一移除，行首固定显示封面缩略图。
+- **「最近添加」视图移除**：它只是"全部音乐换个排序"的伪视图；侧栏只剩全部音乐/专辑/歌手/文件夹/播放列表。
 - **设置是模态对话框**：设置窗口打开期间，应用其余窗口（主窗、迷你播放器）不响应点击，关闭设置后恢复——以 `NSApp.runModal(for:)` 实现。
 
 ### 最低系统要求：macOS 14

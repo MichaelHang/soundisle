@@ -149,7 +149,7 @@ struct MiniPlayerView: View {
            !lyric.isEmpty {
             return lyric
         }
-        return track.artist.isEmpty ? L("未知歌手") : track.artist
+        return track.artist.isEmpty ? L("未知艺人") : track.artist
     }
 
     private var progressLine: some View {

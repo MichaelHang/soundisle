@@ -124,7 +124,7 @@ struct TrackListView: View {
                 .frame(width: TrackColumns.leading, height: 1)
             sortButton(L("标题"), .title, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            sortButton(L("歌手"), .artist, alignment: .leading)
+            sortButton(L("艺人"), .artist, alignment: .leading)
                 .frame(width: TrackColumns.artist, alignment: .leading)
             sortButton(L("专辑"), .album, alignment: .leading)
                 .frame(width: TrackColumns.album, alignment: .leading)
@@ -172,12 +172,10 @@ struct TrackListView: View {
         switch model.selection {
         case .allMusic:
             return L("全部音乐")
-        case .recentlyAdded:
-            return L("最近添加")
         case .albums:
             return L("专辑")
         case .artists:
-            return L("歌手")
+            return L("艺人")
         case .folder(let folder):
             return folder.lastPathComponent
         case .playlist(let id):

@@ -1,6 +1,6 @@
 import Foundation
 
-/// What the sidebar's 专辑/歌手 views group the library by.
+/// What the sidebar's 专辑/艺人 views group the library by.
 public enum TrackGroupKind {
     case album
     case artist
@@ -8,7 +8,7 @@ public enum TrackGroupKind {
 
 /// One group in the album/artist browser. `detail` is fully formatted here so
 /// the view layer only lays out `name` and `detail`; the empty-name labels
-/// (未知专辑/未知歌手) live in the core so grouping tests share them.
+/// (未知专辑/未知艺人) live in the core so grouping tests share them.
 ///
 /// `artist`, `year` and `isCompilation` feed the card grid: an album whose
 /// tracks carry several distinct artists reports 群星 as its artist so a
@@ -89,8 +89,8 @@ public enum LibraryGrouping {
 
     /// The name an album is presented under. A single track artist wins — it
     /// also overrides a lazy 群星 tag on a one-artist album. Otherwise a
-    /// consistent 专辑歌手 (albumArtist) tag names the album; several unlabeled
-    /// artists mean a compilation (群星), and nothing at all is 未知歌手.
+    /// consistent 专辑艺人 (albumArtist) tag names the album; several unlabeled
+    /// artists mean a compilation (群星), and nothing at all is 未知艺人.
     private static func displayArtist(of tracks: [Track], trackArtists: Set<String>) -> String {
         if trackArtists.count == 1, let artist = trackArtists.first {
             return artist
@@ -99,7 +99,7 @@ public enum LibraryGrouping {
         if albumArtists.count == 1, let artist = albumArtists.first {
             return artist
         }
-        return trackArtists.isEmpty ? L("未知歌手") : L("群星")
+        return trackArtists.isEmpty ? L("未知艺人") : L("群星")
     }
 
     private static func albumTrackOrder(_ lhs: Track, _ rhs: Track) -> Bool {
@@ -122,7 +122,7 @@ public enum LibraryGrouping {
             .map { artist, tracks in
                 let sorted = tracks.sorted(by: artistTrackOrder)
                 let albums = Set(sorted.map { $0.album }.filter { !$0.isEmpty }).count
-                let name = artist.isEmpty ? L("未知歌手") : artist
+                let name = artist.isEmpty ? L("未知艺人") : artist
                 return TrackGroup(
                     name: name,
                     detail: [Lf("%d 张专辑", albums), Lf("%d 首", sorted.count)]
@@ -132,8 +132,8 @@ public enum LibraryGrouping {
                 )
             }
             .sorted { lhs, rhs in
-                // 未知歌手 stays at the bottom; everything else alphabetical.
-                switch (lhs.name == L("未知歌手"), rhs.name == L("未知歌手")) {
+                // 未知艺人 stays at the bottom; everything else alphabetical.
+                switch (lhs.name == L("未知艺人"), rhs.name == L("未知艺人")) {
                 case (true, false): return false
                 case (false, true): return true
                 default:

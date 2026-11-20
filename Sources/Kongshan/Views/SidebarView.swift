@@ -14,6 +14,10 @@ struct SidebarView: View {
         VStack(alignment: .leading, spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
+                    // The traffic lights sit on the sidebar's top strip; it
+                    // also drags the window, like Apple Music's sidebar.
+                    WindowDragArea()
+                        .frame(height: 30)
                     sectionLabel(L("音乐库"))
                     libraryRow(
                         title: L("全部音乐"),
@@ -24,14 +28,6 @@ struct SidebarView: View {
                         model.select(.allMusic)
                     }
                     libraryRow(
-                        title: L("最近添加"),
-                        icon: Icons.recent,
-                        count: model.tracks.count,
-                        isSelected: selection == .recentlyAdded
-                    ) {
-                        model.select(.recentlyAdded)
-                    }
-                    libraryRow(
                         title: L("专辑"),
                         icon: Icons.album,
                         count: model.albumCount,
@@ -40,7 +36,7 @@ struct SidebarView: View {
                         model.select(.albums)
                     }
                     libraryRow(
-                        title: L("歌手"),
+                        title: L("艺人"),
                         icon: Icons.artist,
                         count: model.artistCount,
                         isSelected: selection == .artists
@@ -82,8 +78,15 @@ struct SidebarView: View {
                     }
                 }
                 .padding(.horizontal, 10)
-                .padding(.top, 10)
+                .padding(.bottom, 10)
             }
+
+            Spacer(minLength: 0)
+
+            Rectangle()
+                .fill(theme.hairline)
+                .frame(height: 1)
+            settingsRow
         }
         .frame(maxHeight: .infinity)
         // Fixed theme gradient instead of a system material: NSVisualEffectView
@@ -98,6 +101,31 @@ struct SidebarView: View {
                 .fill(theme.hairline)
                 .frame(width: 1)
         }
+    }
+
+    /// Settings pinned to the sidebar's bottom edge — the gear leaves the
+    /// top bar to the search field alone.
+    private var settingsRow: some View {
+        Button {
+            model.openSettings()
+        } label: {
+            HStack(spacing: 8) {
+                Icons.settings
+                    .frame(width: 16)
+                Text(L("设置"))
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+            }
+            .font(.body)
+            .foregroundColor(theme.text.opacity(0.64))
+            .padding(.horizontal, 9)
+            .frame(height: 30)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .help(L("设置"))
     }
 
     private var foldersHeader: some View {

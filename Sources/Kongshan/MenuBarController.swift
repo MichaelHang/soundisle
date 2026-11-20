@@ -26,10 +26,10 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         super.init()
 
         let image = NoteGlyph.templateImage(size: 16)
-            ?? NSImage(systemSymbolName: "music.note", accessibilityDescription: L("声屿"))
+            ?? NSImage(systemSymbolName: "music.note", accessibilityDescription: L("空山"))
         image?.isTemplate = true
         statusItem.button?.image = image
-        statusItem.button?.toolTip = L("声屿")
+        statusItem.button?.toolTip = L("空山")
 
         menu.autoenablesItems = false
         menu.delegate = self
@@ -72,7 +72,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         addItem(L("设置…"), action: #selector(openSettings), keyEquivalent: ",")
         menu.addItem(.separator())
 
-        addItem(L("退出声屿"), action: #selector(quit), keyEquivalent: "q")
+        addItem(L("退出空山"), action: #selector(quit), keyEquivalent: "q")
     }
 
     @discardableResult

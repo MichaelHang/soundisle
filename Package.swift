@@ -6,12 +6,12 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .library(name: "SoundIsleCore", targets: ["SoundIsleCore"]),
-        .executable(name: "SoundIsle", targets: ["SoundIsle"]),
+        .executable(name: "Kongshan", targets: ["Kongshan"]),
     ],
     targets: [
         .target(name: "SoundIsleCore"),
-        .executableTarget(name: "SoundIsle", dependencies: ["SoundIsleCore"]),
+        .executableTarget(name: "Kongshan", dependencies: ["SoundIsleCore"]),
         .testTarget(name: "SoundIsleCoreTests", dependencies: ["SoundIsleCore"]),
-        .testTarget(name: "SoundIsleAppTests", dependencies: ["SoundIsle", "SoundIsleCore"]),
+        .testTarget(name: "KongshanAppTests", dependencies: ["Kongshan", "SoundIsleCore"]),
     ]
 )

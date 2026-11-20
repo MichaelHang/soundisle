@@ -1,5 +1,5 @@
 import XCTest
-@testable import SoundIsle
+@testable import Kongshan
 
 /// The main window, the mini player and the desktop lyrics each show a button
 /// for "the main window". They can only agree if one rule decides it: the main
