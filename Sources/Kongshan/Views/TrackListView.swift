@@ -174,6 +174,8 @@ struct TrackListView: View {
             return L("全部音乐")
         case .albums:
             return L("专辑")
+        case .albumArtists:
+            return L("专辑艺术家")
         case .artists:
             return L("艺人")
         case .folder(let folder):

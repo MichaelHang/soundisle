@@ -36,6 +36,14 @@ struct SidebarView: View {
                         model.select(.albums)
                     }
                     libraryRow(
+                        title: L("专辑艺术家"),
+                        icon: Icons.albumArtist,
+                        count: model.albumArtistCount,
+                        isSelected: selection == .albumArtists
+                    ) {
+                        model.select(.albumArtists)
+                    }
+                    libraryRow(
                         title: L("艺人"),
                         icon: Icons.artist,
                         count: model.artistCount,

@@ -45,6 +45,7 @@ enum Icons {
     static var playlist: Image { symbol("music.note.list", size: 12) }
     static var album: Image { symbol("rectangle.stack", size: 12) }
     static var artist: Image { symbol("music.mic", size: 12) }
+    static var albumArtist: Image { symbol("person.2", size: 12) }
     static var plus: Image { symbol("plus", size: 11, weight: .semibold) }
 
     // Chrome

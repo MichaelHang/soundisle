@@ -825,3 +825,305 @@ private struct ArtistDetailView: View {
         return urls
     }
 }
+
+struct AlbumArtistGridView: View {
+    @ObservedObject var model: AppModel
+    @State private var detail: TrackGroup?
+
+    var body: some View {
+        // Grid stays mounted under the detail page; see AlbumGridView.
+        ZStack {
+            AlbumArtistCardGrid(model: model, onOpen: { detail = $0 })
+                .opacity(detail == nil ? 1 : 0)
+                .allowsHitTesting(detail == nil)
+                .accessibilityHidden(detail != nil)
+            if let detail {
+                AlbumArtistDetailView(model: model, group: detail, onBack: { self.detail = nil })
+                    .transition(.opacity)
+            }
+        }
+    }
+}
+
+private struct AlbumArtistCardGrid: View {
+    @ObservedObject var model: AppModel
+    @Environment(\.theme) private var theme
+    let onOpen: (TrackGroup) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            LibraryGridHeader(model: model, title: L("专辑艺术家"), meta: meta)
+
+            if let message = model.ffmpegPrompt.message {
+                TrackListStatusBanner(model: model, message: message)
+            }
+
+            if model.libraryGroups.isEmpty {
+                LibraryGridEmptyState(model: model)
+            } else {
+                ScrollView {
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 110, maximum: 148), spacing: 14)],
+                        spacing: 20
+                    ) {
+                        ForEach(model.libraryGroups) { group in
+                            AlbumArtistCard(
+                                model: model,
+                                group: group,
+                                artworkURLs: collageURLs(for: group),
+                                onOpen: { onOpen(group) }
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.top, 8)
+                    .padding(.bottom, 14)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var meta: String {
+        let groups = model.libraryGroups
+        let tracks = groups.flatMap { $0.tracks }
+        return Lf("%d 位专辑艺术家 · %d 首 · %@", groups.count, tracks.count, gridDurationText(tracks))
+    }
+
+    /// Covers of the artist's first four distinct albums for the collage.
+    private func collageURLs(for group: TrackGroup) -> [URL?] {
+        var seen = Set<String>()
+        var urls: [URL?] = []
+        for track in group.tracks {
+            guard !track.album.isEmpty, seen.insert(track.album).inserted else { continue }
+            urls.append(model.library.artworkURL(for: track))
+            if urls.count == 4 { break }
+        }
+        return urls
+    }
+}
+
+/// One album-artist card: a 2×2 collage of album covers (one cover fills the square
+/// when the artist has a single album), name, album/track counts.
+private struct AlbumArtistCard: View {
+    @Environment(\.theme) private var theme
+    @State private var isHovering = false
+    let model: AppModel
+    let group: TrackGroup
+    let artworkURLs: [URL?]
+    let onOpen: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            ArtistCollage(urls: artworkURLs, size: 296, cornerRadius: 8)
+                .aspectRatio(1, contentMode: .fit)
+                .shadow(color: .black.opacity(theme.isDark ? 0.35 : 0.12), radius: 7, y: 3)
+            Text(group.name)
+                .font(.body.weight(.medium))
+                .foregroundColor(theme.text)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Text(group.detail)
+                .font(.subheadline)
+                .foregroundColor(theme.mutedText(0.55))
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .padding(7)
+        .background(
+            isHovering ? theme.raisedFill : Color.clear,
+            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onOpen)
+        .onHover { isHovering = $0 }
+        .contextMenu {
+            GroupMenuItems(model: model, group: group, isAlbum: false)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(group.name)，\(group.detail)")
+        .accessibilityHint(L("打开专辑艺术家详情"))
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// One artist's page: header with the collage, then the artist's tracks
+/// sectioned by album so each record stays legible.
+private struct AlbumArtistDetailView: View {
+    @ObservedObject var model: AppModel
+    @Environment(\.theme) private var theme
+    let group: TrackGroup
+    let onBack: () -> Void
+    @State private var isHoveringBack = false
+
+    private struct AlbumSection: Identifiable {
+        let name: String
+        let tracks: [Track]
+        var id: String { name }
+    }
+
+    /// The group snapshot re-resolved against the live library, like the
+    /// album detail page: removals drop out immediately, group order kept.
+    private var liveTracks: [Track] {
+        let current = Dictionary(model.tracks.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        return group.tracks.compactMap { current[$0.id] }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            backButton
+            if let message = model.ffmpegPrompt.message {
+                TrackListStatusBanner(model: model, message: message)
+            }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        header
+                        ForEach(sections) { section in
+                            sectionHeader(section)
+                            ForEach(section.tracks) { track in
+                                TrackRow(
+                                    track: track,
+                                    isCurrent: model.currentTrack?.id == track.id,
+                                    isSelected: model.selectedTrackIDs.contains(track.id),
+                                    isPlaying: model.isPlaying,
+                                        artworkURL: model.library.artworkURL(for: track),
+                                    showsArtistColumn: false,
+                                    showsAlbumColumn: false,
+                                    // Double-click queues that album; 播放全部
+                                    // queues the artist's whole catalogue.
+                                    onTap: { model.handleTrackClick(track.id) },
+                                    onDoubleClick: {
+                                        model.handleTrackDoubleClick(track.id, source: section.tracks)
+                                    }
+                                )
+                                .padding(.horizontal, 18)
+                                .contextMenu {
+                                    TrackMenuItems(model: model, trackID: track.id)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.bottom, 14)
+                }
+                .onChange(of: model.listScrollTarget) { target in
+                    scrollFollow(target, proxy: proxy)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // ↑↓ in the model navigates this page's rows while they are on screen.
+        .onAppear { model.focusedTrackList = liveTracks }
+        .onDisappear { model.focusedTrackList = nil }
+        .onChange(of: liveTracks.map(\.id)) { ids in
+            model.focusedTrackList = liveTracks
+            if ids.isEmpty { onBack() }
+        }
+    }
+
+    /// Keyboard ↑↓ marks its row with `listScrollTarget`; bring it into view.
+    private func scrollFollow(_ target: UUID?, proxy: ScrollViewProxy) {
+        guard let target else { return }
+        model.listScrollTarget = nil
+        guard liveTracks.contains(where: { $0.id == target }) else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            withAnimation(NSWorkspace.appReduceMotion ? nil : .easeInOut(duration: 0.25)) {
+                proxy.scrollTo(target, anchor: .center)
+            }
+        }
+    }
+
+    private var sections: [AlbumSection] {
+        var byAlbum: [String: [Track]] = [:]
+        var order: [String] = []
+        for track in liveTracks {
+            let key = track.album.isEmpty ? L("未知专辑") : track.album
+            if byAlbum[key] == nil { order.append(key) }
+            byAlbum[key, default: []].append(track)
+        }
+        return order.map { AlbumSection(name: $0, tracks: byAlbum[$0] ?? []) }
+    }
+
+    private func sectionHeader(_ section: AlbumSection) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(section.name)
+                .font(.callout.weight(.semibold))
+                .foregroundColor(theme.text)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Text(Lf("%d 首", section.tracks.count))
+                .font(.subheadline)
+                .foregroundColor(theme.mutedText(0.5))
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 26)
+        .padding(.top, 12)
+        .padding(.bottom, 4)
+    }
+
+    /// Toolbar-style back, matching the album detail page.
+    private var backButton: some View {
+        HStack {
+            Button(action: onBack) {
+                HStack(spacing: 4) {
+                    Icons.symbol("chevron.left", size: 11, weight: .semibold)
+                    Text(L("返回"))
+                        .font(.subheadline.weight(.medium))
+                }
+                .foregroundColor(theme.accentLight)
+                .padding(.horizontal, 6)
+                .frame(height: 22)
+                .background(
+                    isHoveringBack ? theme.raisedFill : Color.clear,
+                    in: RoundedRectangle(cornerRadius: 5, style: .continuous)
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { isHoveringBack = $0 }
+            .help(L("返回专辑艺术家列表"))
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 10)
+    }
+
+    private var header: some View {
+        HStack(alignment: .center, spacing: 16) {
+            ArtistCollage(urls: collageURLs, size: 240, cornerRadius: 10)
+                .frame(width: 100, height: 100)
+                .shadow(color: .black.opacity(theme.isDark ? 0.4 : 0.15), radius: 10, y: 4)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(group.name)
+                    .font(.title2.weight(.semibold))
+                    .foregroundColor(theme.text)
+                    .lineLimit(2)
+                Text(group.detail)
+                    .font(.subheadline)
+                    .foregroundColor(theme.mutedText(0.6))
+                    .lineLimit(1)
+                PlayAllButton {
+                    if let first = liveTracks.first {
+                        model.play(trackID: first.id, source: liveTracks)
+                    }
+                }
+                .padding(.top, 3)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 8)
+        .padding(.bottom, 10)
+    }
+
+    private var collageURLs: [URL?] {
+        var seen = Set<String>()
+        var urls: [URL?] = []
+        for track in liveTracks {
+            guard !track.album.isEmpty, seen.insert(track.album).inserted else { continue }
+            urls.append(model.library.artworkURL(for: track))
+            if urls.count == 4 { break }
+        }
+        return urls
+    }
+}

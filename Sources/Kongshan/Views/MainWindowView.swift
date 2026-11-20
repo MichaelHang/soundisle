@@ -45,6 +45,8 @@ struct MainWindowView: View {
                                     ))
                             } else if model.selection == .artists {
                                 ArtistGridView(model: model)
+                            } else if model.selection == .albumArtists {
+                                AlbumArtistGridView(model: model)
                             } else if model.selection == .albums {
                                 AlbumGridView(model: model)
                             } else {
@@ -336,18 +338,11 @@ private struct WindowConfigurator: NSViewRepresentable {
                 window.backgroundColor = .clear
                 window.hasShadow = true
                 window.minSize = NSSize(width: 900, height: 600)
-                // HIG: keep the user's window layout. Registering the
-                // autosave name snapshots the CURRENT frame, so it must run
-                // BEFORE applying the first-launch size — otherwise every
-                // launch overwrites the saved frame with 900x600. Only a
-                // brand-new setup (no saved frame yet) gets the default size.
-                let hasSavedFrame = UserDefaults.standard
-                    .object(forKey: "NSWindow Frame MainWindow") != nil
-                if !hasSavedFrame {
-                    window.setContentSize(NSSize(width: 900, height: 600))
-                    window.center()
-                }
-                window.setFrameAutosaveName("MainWindow")
+                // Frame persistence is SwiftUI's own scene restoration (it
+                // stores and restores the window frame by itself). The first
+                // launch size comes from `.defaultSize` on the scene. Trying
+                // to drive the frame manually here fought that mechanism and
+                // shrank the window on every launch.
                 coordinator.applyAppearance(to: window)
                 // Keep the search field from grabbing first responder at
                 // launch; space and arrow keys belong to playback until

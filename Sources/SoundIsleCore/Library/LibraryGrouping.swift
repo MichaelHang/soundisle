@@ -3,6 +3,10 @@ import Foundation
 /// What the sidebar's 专辑/艺人 views group the library by.
 public enum TrackGroupKind {
     case album
+    /// Grouped by the 专辑艺术家 (albumArtist) tag, falling back to the
+    /// track artist — the natural home for instrumentals, classical and
+    /// soundtracks where no "singer" exists.
+    case albumArtist
     case artist
 }
 
@@ -47,7 +51,8 @@ public enum LibraryGrouping {
     public static func groups(_ tracks: [Track], by kind: TrackGroupKind) -> [TrackGroup] {
         switch kind {
         case .album: return albumGroups(tracks)
-        case .artist: return artistGroups(tracks)
+        case .albumArtist: return artistGroups(tracks, key: Self.effectiveAlbumArtist)
+        case .artist: return artistGroups(tracks, key: { $0.artist })
         }
     }
 
@@ -117,8 +122,17 @@ public enum LibraryGrouping {
 
     // MARK: - Artists
 
-    private static func artistGroups(_ tracks: [Track]) -> [TrackGroup] {
-        Dictionary(grouping: tracks, by: { $0.artist })
+    /// 专辑艺术家 tag when present, otherwise the track artist — so a
+    /// piano album groups under its pianist, not 未知艺人.
+    public static func effectiveAlbumArtist(_ track: Track) -> String {
+        if let albumArtist = track.albumArtist, !albumArtist.isEmpty {
+            return albumArtist
+        }
+        return track.artist
+    }
+
+    private static func artistGroups(_ tracks: [Track], key: (Track) -> String) -> [TrackGroup] {
+        Dictionary(grouping: tracks, by: key)
             .map { artist, tracks in
                 let sorted = tracks.sorted(by: artistTrackOrder)
                 let albums = Set(sorted.map { $0.album }.filter { !$0.isEmpty }).count

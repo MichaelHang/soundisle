@@ -10,6 +10,7 @@ import UniformTypeIdentifiers
 enum LibrarySelection: Hashable {
     case allMusic
     case albums
+    case albumArtists
     case artists
     case folder(URL)
     case playlist(UUID)
@@ -411,7 +412,7 @@ final class AppModel: ObservableObject {
     /// 专辑/艺人 keep the grouping, so the list view cannot reorder or sort them.
     var isGroupedSelection: Bool {
         switch selection {
-        case .albums, .artists: return true
+        case .albums, .albumArtists, .artists: return true
         default: return false
         }
     }
@@ -419,7 +420,7 @@ final class AppModel: ObservableObject {
     var visibleTracks: [Track] {
         let source: [Track]
         switch selection {
-        case .allMusic, .albums, .artists:
+        case .allMusic, .albums, .albumArtists, .artists:
             source = tracks
         case .folder(let folder):
             let prefix = folder.standardizedFileURL.path + "/"
@@ -443,7 +444,9 @@ final class AppModel: ObservableObject {
         guard isGroupedSelection else { return [] }
         return LibraryGrouping.groups(
             visibleTracks,
-            by: selection == .artists ? .artist : .album
+            by: selection == .artists ? .artist
+                : selection == .albumArtists ? .albumArtist
+                : .album
         )
     }
 
@@ -452,6 +455,17 @@ final class AppModel: ObservableObject {
 
     /// Distinct artist names, for the sidebar's 艺人 row.
     var artistCount: Int { Set(tracks.map(\.artist)).count }
+
+    /// Distinct effective album artists (专辑艺术家 tag, falling back to the
+    /// track artist), for the sidebar's 专辑艺术家 row.
+    var albumArtistCount: Int {
+        var names = Set<String>()
+        for track in tracks {
+            let name = LibraryGrouping.effectiveAlbumArtist(track)
+            if !name.isEmpty { names.insert(name) }
+        }
+        return names.count
+    }
 
     func select(_ newSelection: LibrarySelection) {
         selection = newSelection
@@ -472,6 +486,9 @@ final class AppModel: ObservableObject {
             sortAscending = true
         case .artists:
             sort = .artist
+            sortAscending = true
+        case .albumArtists:
+            sort = .album
             sortAscending = true
         case .playlist:
             playlistSorting = false

@@ -10,6 +10,8 @@ struct SoundIsleApp: App {
             MainWindowView(model: appDelegate.model)
         }
         .windowStyle(.hiddenTitleBar)
+        // First launch only; afterwards SwiftUI restores the last frame.
+        .defaultSize(width: 900, height: 600)
         .commands {
             CommandGroup(after: .pasteboard) {
                 Button(L("搜索")) {

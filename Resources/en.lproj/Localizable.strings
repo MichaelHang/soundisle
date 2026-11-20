@@ -434,3 +434,7 @@
 "从音乐库移除“%@”的全部歌曲" = "Remove All Songs by “%@”";
 "显示其余 %d 条" = "Show %d More";
 "收起" = "Collapse";
+"专辑艺术家" = "Album Artists";
+"%d 位专辑艺术家 · %d 首 · %@" = "%d album artists · %d songs · %@";
+"返回专辑艺术家列表" = "Back to Album Artists";
+"打开专辑艺术家详情" = "Open album artist details";

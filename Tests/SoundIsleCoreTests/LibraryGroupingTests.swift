@@ -207,3 +207,47 @@ final class LibraryGroupingTests: XCTestCase {
         XCTAssertEqual(groups.first?.name, "John")
     }
 }
+
+    func testAlbumArtistGroupsByAlbumArtistTag() {
+        // 专辑艺术家标签优先：钢琴曲没有歌手，归到演奏家名下。
+        var piano = Track(
+            url: URL(fileURLWithPath: "/tmp/piano.flac"),
+            title: "Merry-Go-Round",
+            artist: "久石让",
+            album: "Piano Stories"
+        )
+        piano.albumArtist = "Joe Hisaishi"
+
+        let groups = LibraryGrouping.groups([piano], by: .albumArtist)
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups.first?.name, "Joe Hisaishi")
+        XCTAssertEqual(groups.first?.detail, Lf("%d 张专辑", 1) + " · " + Lf("%d 首", 1))
+    }
+
+    func testAlbumArtistFallsBackToTrackArtist() {
+        let track = Track(
+            url: URL(fileURLWithPath: "/tmp/01.mp3"),
+            title: "晴天",
+            artist: "周杰伦",
+            album: "叶惠美"
+        )
+
+        let groups = LibraryGrouping.groups([track], by: .albumArtist)
+        XCTAssertEqual(groups.first?.name, "周杰伦")
+    }
+
+    func testAlbumArtistAndArtistViewsGroupTheSameTrackDifferently() {
+        var byAlbumArtist = Track(
+            url: URL(fileURLWithPath: "/tmp/01.mp3"),
+            title: "One",
+            artist: "群星",
+            album: "Red",
+            albumArtist: "王菲"
+        )
+        byAlbumArtist.albumArtist = "王菲"
+
+        let albumArtistGroups = LibraryGrouping.groups([byAlbumArtist], by: .albumArtist)
+        let artistGroups = LibraryGrouping.groups([byAlbumArtist], by: .artist)
+        XCTAssertEqual(albumArtistGroups.first?.name, "王菲")
+        XCTAssertEqual(artistGroups.first?.name, "群星")
+    }
