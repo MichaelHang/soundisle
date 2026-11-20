@@ -48,6 +48,14 @@ for lproj in Resources/*.lproj; do
     cp -R "$lproj" "$APP_BUNDLE/Contents/Resources/"
 done
 shopt -u nullglob
-codesign --force --sign - "$APP_BUNDLE"
+# 稳定的本地签名身份（自签名证书 KongshanLocal）：TCC 按签名身份记住
+# 外置盘等隐私授权，ad-hoc 签名每次构建都会变，导致每次启动都重新询问。
+# 没有该证书时回退 ad-hoc。
+SIGN_IDENTITY="KongshanLocal"
+if security find-identity -v -p codesigning | grep -q "$SIGN_IDENTITY"; then
+    codesign --force --sign "$SIGN_IDENTITY" "$APP_BUNDLE"
+else
+    codesign --force --sign - "$APP_BUNDLE"
+fi
 
 echo "已生成 $APP_BUNDLE"
