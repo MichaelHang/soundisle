@@ -291,7 +291,11 @@ public final class LibraryStore {
                 rebuild.append(scanned)
                 continue
             }
-            if existing.fileSize == scanned.fileSize && existing.modifiedAt == scanned.modifiedAt {
+            let unchanged = existing.fileSize == scanned.fileSize && existing.modifiedAt == scanned.modifiedAt
+            // A file whose scan produced no cover gets re-read even when
+            // unchanged, so artwork-extraction improvements (e.g. the FLAC
+            // picture parser) reach already-indexed files on the next rescan.
+            if unchanged && existing.artworkFileName != nil {
                 var keep = existing
                 keep.isMissing = false
                 kept.append(keep)

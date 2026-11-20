@@ -104,6 +104,12 @@ public struct AVFoundationMetadataReader: MetadataReading {
         if metadata.genre == nil {
             metadata.genre = predefinedGenre
         }
+
+        // AVFoundation does not surface FLAC's native picture block; fall
+        // back to a direct FLAC parse when the AV path found no artwork.
+        if metadata.artworkData == nil {
+            metadata.artworkData = FLACArtwork.pictureData(at: url)
+        }
         return metadata
     }
 

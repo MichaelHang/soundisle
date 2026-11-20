@@ -400,12 +400,15 @@ final class LibraryStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testRescanKeepsExistingTrackWhenFileIsUnchanged() async throws {
+    func testRescanKeepsExistingTrackWhenFileIsUnchangedAndHasArtwork() async throws {
         try makeFile("不变.mp3")
         let reader = StubReader()
         reader.setMetadata(["不变.mp3": AudioMetadata(title: "原名", duration: 10)])
         let store = LibraryStore(directory: dataDir)
         await store.addFolder(libraryRoot, reader: reader)
+        // A track that already carries a cover takes the fast "keep" path:
+        // its metadata is not re-read, so scanner-side drift is ignored.
+        store.index.tracks[0].artworkFileName = "已有封面.jpg"
         let originalID = try track(named: "原名", in: store).id
 
         reader.setMetadata(["不变.mp3": AudioMetadata(title: "不该采用", duration: 10)])
@@ -415,6 +418,26 @@ final class LibraryStoreTests: XCTestCase {
         let unchanged = try track(named: "原名", in: store)
         XCTAssertEqual(unchanged.id, originalID)
         XCTAssertFalse(unchanged.isMissing)
+    }
+
+    @MainActor
+    func testRescanRereadsUnchangedTrackWithoutArtwork() async throws {
+        // No cover yet: the unchanged file is re-read once (same id) so
+        // artwork-extraction improvements reach already-indexed files.
+        try makeFile("无封面.mp3")
+        let reader = StubReader()
+        reader.setMetadata(["无封面.mp3": AudioMetadata(title: "原名", duration: 10)])
+        let store = LibraryStore(directory: dataDir)
+        await store.addFolder(libraryRoot, reader: reader)
+        let originalID = try track(named: "原名", in: store).id
+
+        reader.setMetadata(["无封面.mp3": AudioMetadata(title: "新读取", duration: 10)])
+        await store.rescan(reader: reader)
+
+        XCTAssertEqual(store.index.tracks.count, 1)
+        let refreshed = try track(named: "新读取", in: store)
+        XCTAssertEqual(refreshed.id, originalID)
+        XCTAssertFalse(refreshed.isMissing)
     }
 
     @MainActor
