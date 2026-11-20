@@ -32,13 +32,34 @@ public enum FLACArtwork {
             let payloadStart = offset + 4
             guard payloadStart + length <= raw.count else { return nil }
 
-            if type == 6, let picture = readPictureBlock(raw, range: payloadStart..<payloadStart + length) {
-                return picture
+            // Type 6 is the standard PICTURE block. Some Chinese downloaders
+            // and taggers write the cover into a private block type (25 seen
+            // in the wild) instead; for those, attempt a picture parse and
+            // accept it only when the mime type is a plausible image — a
+            // random reserved block will fail the structure check anyway.
+            if type == 6 || type >= 7,
+               let picture = readPictureBlock(raw, range: payloadStart..<payloadStart + length) {
+                if type == 6 || pictureLooksLikeImage(raw, range: payloadStart..<payloadStart + length) {
+                    return picture
+                }
             }
             if isLast { return nil }
             offset = payloadStart + length
         }
         return nil
+    }
+
+    /// A parsed block counts as a picture when its mime field starts with
+    /// "image/" — the structural sanity check for non-standard block types.
+    private static func pictureLooksLikeImage(_ raw: Data, range: Range<Int>) -> Bool {
+        // Fresh copy: slices keep parent indices, breaking the 0-based cursor.
+        let bytes = Data(raw[range])
+        guard bytes.count > 8 else { return false }
+        let mimeLength = Int(bytes[4]) << 24 | Int(bytes[5]) << 16
+            | Int(bytes[6]) << 8 | Int(bytes[7])
+        guard mimeLength > 0, 8 + mimeLength <= bytes.count else { return false }
+        let mime = String(decoding: bytes[8..<8 + mimeLength], as: UTF8.self).lowercased()
+        return mime.hasPrefix("image/")
     }
 
     private static func readPictureBlock(_ raw: Data, range: Range<Int>) -> Data? {

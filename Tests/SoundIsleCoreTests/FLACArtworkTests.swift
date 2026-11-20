@@ -79,6 +79,27 @@ final class FLACArtworkTests: XCTestCase {
         XCTAssertEqual(FLACArtwork.pictureData(at: url), jpeg)
     }
 
+    func testPrivateBlockTypeWithImageMimeIsAccepted() throws {
+        // 下载器会把封面写进非规范块类型（实测见过 25）；结构合法且
+        // mime 是 image/* 就收下。
+        let jpeg = Data([0xFF, 0xD8, 0xAA])
+        let url = try writeFLAC([(25, picturePayload(jpeg: jpeg))])
+
+        XCTAssertEqual(FLACArtwork.pictureData(at: url), jpeg)
+    }
+
+    func testPrivateBlockTypeWithNonImageMimeIsIgnored() throws {
+        let payload = picturePayload(jpeg: Data([1]))
+        // 手工把 mime 改成 audio/x-whatever
+        var patched = payload
+        let mimeStart = 8
+        patched[mimeStart + 6] = UInt8(ascii: "a")   // image → audio 的首字母
+        patched[8] = UInt8(ascii: "a")
+        let url = try writeFLAC([(25, patched)])
+
+        XCTAssertNil(FLACArtwork.pictureData(at: url))
+    }
+
     func testNoPictureBlockReturnsNil() throws {
         let url = try writeFLAC([
             (0, Data(repeating: 0, count: 34)),
